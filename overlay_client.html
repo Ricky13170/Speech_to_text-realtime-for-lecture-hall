@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<title>ASR Overlay</title>
+<style>
+  html, body {
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
+    background: transparent;
+    font-family: "Segoe UI", "Roboto", sans-serif;
+  }
+
+  #subtitle {
+    position: fixed;
+    bottom: 6%;
+    left: 50%;
+    transform: translateX(-50%);
+    color: #ffffff;
+    font-size: 2rem;
+    font-weight: 600;
+    text-align: center;
+    text-shadow: 2px 2px 8px rgba(0, 0, 0, 0.9);
+    width: 90%;
+    transition: opacity 0.3s ease-in-out;
+  }
+
+  #subtitle.final {
+    color: #00ff77;
+  }
+
+  #subtitle.realtime {
+    color: #ffe600;
+  }
+</style>
+</head>
+<body>
+  <div id="subtitle">⏳ Đang khởi động...</div>
+
+  <script>
+    // 🔌 Kết nối đúng WebSocket server của bạn
+    const SERVER_WS = "ws://127.0.0.1:8012/ws";
+    const socket = new WebSocket(SERVER_WS);
+
+    const subtitle = document.getElementById("subtitle");
+    let fadeTimeout = null;
+
+    socket.onopen = () => {
+      console.log("✅ Đã kết nối tới ASR server:", SERVER_WS);
+      subtitle.textContent = "🎙️ Listening...";
+      subtitle.className = "realtime";
+    };
+
+    socket.onmessage = (event) => {
+      const msg = JSON.parse(event.data);
+      if (!msg.type || !msg.text) return;
+
+      if (msg.type === "realtime") {
+        subtitle.textContent = msg.text;
+        subtitle.className = "realtime";
+        subtitle.style.opacity = 1;
+        clearTimeout(fadeTimeout);
+      }
+
+      if (msg.type === "fullSentence") {
+        subtitle.textContent = msg.text;
+        subtitle.className = "final";
+        subtitle.style.opacity = 1;
+
+        // Ẩn dần sau vài giây
+        clearTimeout(fadeTimeout);
+        fadeTimeout = setTimeout(() => {
+          subtitle.style.opacity = 0;
+        }, 4000);
+      }
+    };
+
+    socket.onerror = (err) => {
+      console.error("❌ Lỗi WebSocket:", err);
+      subtitle.textContent = "❌ Không kết nối được server.";
+      subtitle.className = "final";
+    };
+
+    socket.onclose = () => {
+      console.log("⚠️ WebSocket đóng kết nối.");
+      subtitle.textContent = "🔌 Mất kết nối ASR server.";
+      subtitle.className = "final";
+    };
+  </script>
+</body>
+</html>
