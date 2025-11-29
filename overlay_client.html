@@ -1,92 +1,308 @@
-<!DOCTYPE html>
-<html lang="vi">
+<!doctype html>
+<html lang="en">
 <head>
-<meta charset="UTF-8">
-<title>ASR Overlay</title>
-<style>
-  html, body {
-    margin: 0;
-    padding: 0;
-    overflow: hidden;
-    background: transparent;
-    font-family: "Segoe UI", "Roboto", sans-serif;
-  }
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Realtime Captions Viewer</title>
+    <style>
+        :root {
+            --bg-color: #ffffff;
+            --text-color: #000000;
+            --panel-bg: #f5f5f5;
+            --accent-color: #000000;
+            --muted-color: #666666;
+            --border-color: #e0e0e0;
+        }
 
-  #subtitle {
-    position: fixed;
-    bottom: 6%;
-    left: 50%;
-    transform: translateX(-50%);
-    color: #ffffff;
-    font-size: 2rem;
-    font-weight: 600;
-    text-align: center;
-    text-shadow: 2px 2px 8px rgba(0, 0, 0, 0.9);
-    width: 90%;
-    transition: opacity 0.3s ease-in-out;
-  }
+        body {
+            margin: 0;
+            background: var(--bg-color);
+            font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            color: var(--text-color);
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
 
-  #subtitle.final {
-    color: #00ff77;
-  }
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 20px;
+            width: 100%;
+            box-sizing: border-box;
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+        }
 
-  #subtitle.realtime {
-    color: #ffe600;
-  }
-</style>
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            border-bottom: 2px solid var(--accent-color);
+            padding-bottom: 10px;
+        }
+
+        h1 {
+            margin: 0;
+            font-size: 24px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .status {
+            font-size: 14px;
+            color: var(--muted-color);
+            font-weight: 500;
+        }
+
+        .main-display {
+            background: var(--panel-bg);
+            padding: 30px;
+            border-radius: 8px;
+            border: 1px solid var(--border-color);
+            margin-bottom: 20px;
+            min-height: 150px;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            text-align: center;
+        }
+
+        #vad-status {
+            font-size: 14px;
+            font-weight: 700;
+            color: var(--muted-color);
+            height: 20px;
+            margin-bottom: 10px;
+            text-transform: uppercase;
+        }
+
+        #partial-text {
+            font-size: 28px;
+            color: var(--muted-color);
+            min-height: 30px;
+            line-height: 1.4;
+            margin-bottom: 5px;
+        }
+
+        #partial-trans {
+            font-size: 20px;
+            color: #888;
+            font-style: italic;
+            margin-bottom: 15px;
+            min-height: 25px;
+        }
+
+        #final-text {
+            font-size: 32px;
+            font-weight: 600;
+            color: var(--text-color);
+            line-height: 1.4;
+        }
+
+        #final-trans {
+            font-size: 24px;
+            color: #444;
+            font-style: italic;
+            margin-top: 5px;
+        }
+
+        .controls {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+
+        button {
+            background: var(--text-color);
+            color: var(--bg-color);
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: 600;
+            font-size: 14px;
+            transition: opacity 0.2s;
+        }
+
+        button:hover {
+            opacity: 0.8;
+        }
+
+        button.secondary {
+            background: transparent;
+            border: 1px solid var(--text-color);
+            color: var(--text-color);
+        }
+
+        .history-container {
+            flex: 1;
+            overflow-y: auto;
+            border-top: 1px solid var(--border-color);
+            padding-top: 20px;
+        }
+
+        .history-item {
+            padding: 8px 0;
+            border-bottom: 1px solid var(--border-color);
+            font-size: 16px;
+            color: var(--muted-color);
+            display: flex;
+        }
+
+        .timestamp {
+            font-family: monospace;
+            margin-right: 15px;
+            color: var(--accent-color);
+            font-weight: 600;
+            min-width: 80px;
+        }
+
+        /* Scrollbar styling */
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #f1f1f1;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #888;
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #555;
+        }
+    </style>
 </head>
 <body>
-  <div id="subtitle">⏳ Đang khởi động...</div>
+    <div class="container">
+        <header>
+            <h1>Live Captions</h1>
+            <div id="connection-status" class="status">Disconnected</div>
+        </header>
 
-  <script>
-    // 🔌 Kết nối đúng WebSocket server của bạn
-    const SERVER_WS = "ws://127.0.0.1:8012/ws";
-    const socket = new WebSocket(SERVER_WS);
+        <div class="main-display">
+            <div id="vad-status"></div>
+            <div id="final-text"></div>
+            <div id="final-trans"></div>
+            <div id="partial-text"></div>
+            <div id="partial-trans"></div>
+        </div>
 
-    const subtitle = document.getElementById("subtitle");
-    let fadeTimeout = null;
+        <div class="controls">
+            <button id="btn-clear">Clear Display</button>
+            <button id="btn-fullscreen" class="secondary">Fullscreen</button>
+        </div>
 
-    socket.onopen = () => {
-      console.log("✅ Đã kết nối tới ASR server:", SERVER_WS);
-      subtitle.textContent = "🎙️ Listening...";
-      subtitle.className = "realtime";
-    };
+        <div class="history-container" id="history-list">
+            <!-- History items will appear here -->
+        </div>
+    </div>
 
-    socket.onmessage = (event) => {
-      const msg = JSON.parse(event.data);
-      if (!msg.type || !msg.text) return;
+    <script>
+        (function() {
+            const statusEl = document.getElementById('connection-status');
+            const partialEl = document.getElementById('partial-text');
+            const partialTransEl = document.getElementById('partial-trans');
+            const finalEl = document.getElementById('final-text');
+            const finalTransEl = document.getElementById('final-trans');
+            const vadEl = document.getElementById('vad-status');
+            const historyEl = document.getElementById('history-list');
+            const clearBtn = document.getElementById('btn-clear');
+            const fullscreenBtn = document.getElementById('btn-fullscreen');
 
-      if (msg.type === "realtime") {
-        subtitle.textContent = msg.text;
-        subtitle.className = "realtime";
-        subtitle.style.opacity = 1;
-        clearTimeout(fadeTimeout);
-      }
+            // Button Handlers
+            clearBtn.onclick = () => {
+                finalEl.innerText = '';
+                finalTransEl.innerText = '';
+                partialEl.innerText = '';
+                partialTransEl.innerText = '';
+            };
 
-      if (msg.type === "fullSentence") {
-        subtitle.textContent = msg.text;
-        subtitle.className = "final";
-        subtitle.style.opacity = 1;
+            fullscreenBtn.onclick = () => {
+                if (!document.fullscreenElement) {
+                    document.documentElement.requestFullscreen();
+                } else {
+                    if (document.exitFullscreen) {
+                        document.exitFullscreen();
+                    }
+                }
+            };
 
-        // Ẩn dần sau vài giây
-        clearTimeout(fadeTimeout);
-        fadeTimeout = setTimeout(() => {
-          subtitle.style.opacity = 0;
-        }, 4000);
-      }
-    };
+            // WebSocket Connection
+            const wsProto = location.protocol === 'https:' ? 'wss' : 'ws';
+            const wsUrl = `${wsProto}://${location.host}/ws?role=viewer`;
+            let ws;
+            let reconnectDelay = 1000;
 
-    socket.onerror = (err) => {
-      console.error("❌ Lỗi WebSocket:", err);
-      subtitle.textContent = "❌ Không kết nối được server.";
-      subtitle.className = "final";
-    };
+            function connect() {
+                statusEl.innerText = 'Connecting...';
+                
+                ws = new WebSocket(wsUrl);
 
-    socket.onclose = () => {
-      console.log("⚠️ WebSocket đóng kết nối.");
-      subtitle.textContent = "🔌 Mất kết nối ASR server.";
-      subtitle.className = "final";
-    };
-  </script>
+                ws.onopen = () => {
+                    statusEl.innerText = 'Connected';
+                    statusEl.style.color = 'green';
+                    reconnectDelay = 1000;
+                };
+
+                ws.onclose = () => {
+                    statusEl.innerText = 'Disconnected - Retrying...';
+                    statusEl.style.color = 'red';
+                    setTimeout(connect, reconnectDelay);
+                    reconnectDelay = Math.min(60000, reconnectDelay * 1.5);
+                };
+
+                ws.onerror = (e) => {
+                    ws.close();
+                };
+
+                ws.onmessage = (ev) => {
+                    try {
+                        const data = JSON.parse(ev.data);
+                        const type = data.type;
+
+                        if (type === 'realtime') {
+                            partialEl.innerText = data.text || '';
+                            partialTransEl.innerText = data.trans || '';
+                        } else if (type === 'fullSentence') {
+                            const text = data.text || '';
+                            const trans = data.trans || '';
+                            finalEl.innerText = text;
+                            finalTransEl.innerText = trans;
+                            partialEl.innerText = '';
+                            partialTransEl.innerText = '';
+                            
+                            // Add to history
+                            if (text.trim()) {
+                                const row = document.createElement('div');
+                                row.className = 'history-item';
+                                const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+                                row.innerHTML = `<span class="timestamp">${time}</span>
+                                                 <div style="display:flex; flex-direction:column;">
+                                                    <span>${text}</span>
+                                                    <span style="font-size:0.9em; color:#888; font-style:italic;">${trans}</span>
+                                                 </div>`;
+                                historyEl.prepend(row);
+                            }
+                        } else if (type === 'vad_start') {
+                            vadEl.innerText = 'LISTENING...';
+                        } else if (type === 'vad_stop') {
+                            vadEl.innerText = '';
+                        }
+                    } catch (e) {
+                        console.error('Invalid message:', e);
+                    }
+                };
+            }
+
+            // Start connection
+            connect();
+        })();
+    </script>
 </body>
 </html>

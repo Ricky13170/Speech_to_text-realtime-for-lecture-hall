@@ -5,7 +5,14 @@ sounddevice
 soundfile
 numpy
 torch
+torchaudio
 transformers
-silero-vad
+accelerate
 scipy
-python-socketio
+opencv-python
+Pillow
+noisereduce
+sentencepiece
+protobuf
+deep-translator
+PyQt5
