@@ -18,8 +18,8 @@ DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
 # --- VAD & LOGIC ---
 VAD_THRESHOLD = 0.6
-SILENCE_LIMIT = 0.8  # Tăng nhẹ lên 0.8s để tránh ngắt câu quá sớm
-PARTIAL_INTERVAL = 0.1 # Giảm xuống 0.1s để chữ hiện ra siêu mượt (Real-time)
+SILENCE_LIMIT = 0.4  # Tăng nhẹ lên 0.8s để tránh ngắt câu quá sớm
+PARTIAL_INTERVAL = 0.2 # Giảm xuống 0.1s để chữ hiện ra siêu mượt (Real-time)
 
 # --- UI ---
 WINDOW_NAME = "ASR Live Caption"
@@ -28,4 +28,4 @@ FONT_PATH = "arial.ttf" # Cross-platform (if installed) or provide path
 
 # --- SYSTEM ---
 # Set False to disable caption.py (overlay window)
-USE_CAPTION_OVERLAY = True 
+USE_CAPTION_OVERLAY = False 

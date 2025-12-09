@@ -23,12 +23,14 @@ from deep_translator import GoogleTranslator
 
 import config
 from audio_processor import vad_prob_for_buffer, process_realtime_chunk, process_final_sentence
+from utils.logger import VTTLogger
 
 # ----------------- GLOBAL VARIABLES -----------------
 processor = None
 model = None
 translator = GoogleTranslator(source='vi', target='en')
 caption_process = None  # Biến quản lý tiến trình Caption
+vtt_logger = VTTLogger() # Initialize Logger
 
 # ----------------- LIFESPAN (Load Model Once) -----------------
 @asynccontextmanager
@@ -112,10 +114,12 @@ def transcribe_audio(audio_np):
     try:
         inputs = processor(audio=audio_np, sampling_rate=config.SAMPLE_RATE, return_tensors="pt")
         input_features = inputs.input_features.to(config.DEVICE)
+        attention_mask = inputs.attention_mask.to(config.DEVICE) if hasattr(inputs, "attention_mask") else None
 
         with torch.no_grad():
             ids = model.generate(
-                input_features, 
+                input_features,
+                attention_mask=attention_mask,
                 max_new_tokens=128, 
                 language="vi", 
                 task="transcribe",
@@ -132,7 +136,7 @@ def transcribe_audio(audio_np):
         print(f"Transcription failed: {e}")
         return ""
 
-async def do_transcribe_and_send(state: ConnectionState, final=False):
+async def do_transcribe_and_send(state: ConnectionState, final=False, start_ts=None, end_ts=None):
     async with state.lock:
         audio = state.buffer.copy()
     
@@ -167,6 +171,10 @@ async def do_transcribe_and_send(state: ConnectionState, final=False):
         payload = {"type": "fullSentence", "text": final_text, "trans": trans_text}
         await state.send_json(payload)
         await broadcast_to_viewers(payload)
+        
+        # Log to VTT
+        if start_ts is not None and end_ts is not None:
+            vtt_logger.log_segment(start_ts, end_ts, final_text)
         
         # Reset buffer
         async with state.lock:
@@ -247,6 +255,7 @@ async def ws_endpoint(ws: WebSocket):
                 if not state.speech_active:
                     state.speech_active = True
                     state.last_speech_ts = now
+                    state.current_segment_start = now
                     
                     # Notify Start
                     await state.send_json({"type": "vad_start"})
@@ -261,6 +270,7 @@ async def ws_endpoint(ws: WebSocket):
             elif state.speech_active and (now - state.last_speech_ts) > config.SILENCE_LIMIT:
                 # Silence detected -> Finalize
                 state.speech_active = False
+                end_ts = now
                 if state.partial_task:
                     state.partial_task.cancel()
                     state.partial_task = None
@@ -272,7 +282,7 @@ async def ws_endpoint(ws: WebSocket):
                 await broadcast_to_viewers({"type": "vad_stop"})
                 
                 # Transcribe final sentence
-                await do_transcribe_and_send(state, final=True)
+                await do_transcribe_and_send(state, final=True, start_ts=state.current_segment_start, end_ts=end_ts)
 
     except WebSocketDisconnect:
         print(f"Broadcaster disconnected ID={cid}")
