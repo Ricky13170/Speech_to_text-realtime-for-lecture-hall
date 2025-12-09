@@ -133,12 +133,6 @@
             opacity: 0.8;
         }
 
-        button.secondary {
-            background: transparent;
-            border: 1px solid var(--text-color);
-            color: var(--text-color);
-        }
-
         .history-container {
             flex: 1;
             overflow-y: auto;
@@ -195,7 +189,6 @@
 
         <div class="controls">
             <button id="btn-clear">Clear Display</button>
-            <button id="btn-fullscreen" class="secondary">Fullscreen</button>
         </div>
 
         <div class="history-container" id="history-list">
@@ -213,7 +206,6 @@
             const vadEl = document.getElementById('vad-status');
             const historyEl = document.getElementById('history-list');
             const clearBtn = document.getElementById('btn-clear');
-            const fullscreenBtn = document.getElementById('btn-fullscreen');
 
             // Button Handlers
             clearBtn.onclick = () => {
@@ -221,16 +213,6 @@
                 finalTransEl.innerText = '';
                 partialEl.innerText = '';
                 partialTransEl.innerText = '';
-            };
-
-            fullscreenBtn.onclick = () => {
-                if (!document.fullscreenElement) {
-                    document.documentElement.requestFullscreen();
-                } else {
-                    if (document.exitFullscreen) {
-                        document.exitFullscreen();
-                    }
-                }
             };
 
             // WebSocket Connection

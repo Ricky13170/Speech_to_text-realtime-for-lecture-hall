@@ -4,8 +4,6 @@ websockets
 sounddevice
 soundfile
 numpy
-torch
-torchaudio
 transformers
 accelerate
 scipy
