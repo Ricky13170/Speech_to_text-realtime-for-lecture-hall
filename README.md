@@ -1,63 +1,96 @@
-# Real-time Speech-to-Text for Lecture Halls
+# ASR Realtime - Nhận dạng giọng nói thời gian thực
 
-Hệ thống nhận dạng tiếng nói thời gian thực mô hình Client-Server, tối ưu cho giảng đường sử dụng PhoWhisper và Silero VAD. Hỗ trợ hiển thị phụ đề song ngữ (Việt - Anh) qua giao diện Overlay hoặc Webcam.
+Hệ thống chuyển giọng nói thành văn bản theo thời gian thực, hỗ trợ dịch Việt - Anh.
 
-## 1. Cài đặt (Khuyên dùng uv)
+## Tính năng
+
+- Nhận dạng giọng nói tiếng Việt realtime
+- Dịch tự động sang tiếng Anh
+- Giao diện web xem transcript
+- Hỗ trợ deploy lên Modal (GPU cloud)
+
+## Cài đặt
 
 ```bash
-pip install uv
-uv venv
+# Tạo môi trường ảo
+python -m venv .venv
 .venv\Scripts\activate  # Windows
-uv pip install -r requirements.txt
+
+# Cài đặt dependencies
+pip install -r requirements.txt
 ```
 
-## 2. Kiểm tra & Cấu hình GPU (Laptop)
+## Sử dụng
 
-Để hệ thống chạy mượt (Real-time), bắt buộc nên dùng GPU NVIDIA.
+### Cách 1: Dùng Modal Cloud (Khuyến nghị)
 
-**Bước 1: Kiểm tra máy đã nhận GPU chưa**
-Chạy script kiểm tra có sẵn:
+**Bước 1:** Đăng nhập Modal
+
 ```bash
-python utils/check_gpu.py
+pip install modal
+modal token new
 ```
-*   Nếu hiện `CUDA Available: True` và tên Card rời (VD: RTX 3050) -> **Sẵn sàng**.
-*   Nếu hiện `False` hoặc tên Card Onboard -> Cần cài lại PyTorch CUDA.
 
-**Bước 2: Cài đặt PyTorch hỗ trợ CUDA (Nếu chưa nhận)**
-Chạy lệnh sau để cài bản hỗ trợ GPU (Ví dụ cho CUDA 11.8/12.x):
+**Bước 2:** Deploy server
+
 ```bash
-uv pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
+modal deploy modal_app.py
 ```
 
-## 3. Hướng dẫn chạy
+**Bước 3:** Chạy client
 
-Hệ thống gồm 2 thành phần chính: **Server** (xử lý AI) và **Client** (thu âm).
-
-**Bước 1: Khởi động Server**
-```bash
-python server.py
-```
-*   Server sẽ tải model AI (lần đầu chạy sẽ hơi lâu).
-*   Sau khi load xong, giao diện **Caption Overlay** sẽ tự động hiện lên.
-*   **Giao diện Caption:**
-    *   Mặc định là thanh phụ đề trong suốt (Overlay).
-    *   Bấm nút **📷 Bật Camera** để chuyển sang chế độ Webcam + Phụ đề.
-    *   Bấm nút **⚙ Cài đặt** để chỉnh cỡ chữ, độ mờ nền.
-    *   Kéo thả góc dưới phải để thay đổi kích thước cửa sổ.
-
-**Bước 2: Khởi động Client (Microphone)**
-Mở một terminal khác và chạy:
 ```bash
 python client.py
 ```
-*   Client sẽ thu âm từ microphone và gửi về Server.
-*   Phụ đề sẽ hiện ra ngay lập tức trên cửa sổ Caption.
 
-*Ngoài ra, sinh viên có thể xem phụ đề qua Web tại: `http://localhost:8000`*
+Client sẽ hiện link để mở trình duyệt xem transcript.
 
-## 4. Cấu hình
-Sửa file `config.py` để thay đổi các thông số:
-*   `USE_CAPTION_OVERLAY`: Đặt `True` để tự động bật giao diện Caption, `False` để tắt.
-*   `MODEL_ID`: Đổi model AI (VD: `vinai/PhoWhisper-small`).
-*   `VAD_THRESHOLD`: Độ nhạy bắt giọng nói (0.6 là mức khuyến nghị).
-*   `PARTIAL_INTERVAL`: Tốc độ cập nhật phụ đề (0.1s cho độ trễ thấp nhất).
+### Cách 2: Chạy local (Cần GPU)
+
+**Bước 1:** Chạy server
+
+```bash
+python server.py
+```
+
+**Bước 2:** Chạy client
+
+```bash
+python client.py
+```
+
+**Bước 3:** Mở trình duyệt
+
+```text
+http://localhost:8000
+```
+
+## Cấu hình
+
+Sửa file `config.py`:
+
+| Tham số | Mô tả | Mặc định |
+|---------|-------|----------|
+| `USE_MODAL` | Dùng Modal cloud | `True` |
+| `MODEL_ID` | Model ASR | `openai/whisper-large-v3` |
+| `VAD_THRESHOLD` | Độ nhạy phát hiện giọng nói | `0.6` |
+| `SILENCE_LIMIT` | Thời gian im lặng để kết thúc câu | `0.8s` |
+
+## Cấu trúc project
+
+```text
+├── client.py          # Thu âm và gửi audio
+├── server.py          # Server local (cần GPU)
+├── modal_app.py       # Server trên Modal cloud
+├── audio_processor.py # Xử lý audio, VAD
+├── config.py          # Cấu hình
+├── overlay_client.html # Giao diện web viewer
+└── requirements.txt   # Dependencies
+```
+
+## Yêu cầu
+
+- Python 3.10+
+- Microphone
+- GPU NVIDIA (nếu chạy local)
+- Tài khoản Modal (nếu dùng cloud)

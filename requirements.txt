@@ -1,18 +1,26 @@
+# Core
+torch>=2.0.0
+numpy>=1.24.0
+
+# ASR Model
+transformers>=4.36.0
+accelerate>=0.25.0
+sentencepiece
+protobuf
+
+# Audio Processing
+sounddevice
+soundfile
+scipy
+noisereduce
+
+# Server
 fastapi
 uvicorn[standard]
 websockets
-sounddevice
-soundfile
-numpy
-torch
-torchaudio
-transformers
-accelerate
-scipy
-opencv-python
-Pillow
-noisereduce
-sentencepiece
-protobuf
+
+# Translation
 deep-translator
-PyQt5
+
+# Deployment
+modal
