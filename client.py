@@ -1,86 +1,153 @@
-import sounddevice as sd
-import numpy as np
+import asyncio
+import json
 import queue
 import struct
-import json
 import sys
-import asyncio
+from collections import deque
+
+import numpy as np
+import sounddevice as sd
 import websockets
+
 import config
 
-# --- STATE ---
-BUFFER = queue.Queue()
+# =========================
+# AUDIO QUEUE
+# =========================
+audio_queue = queue.Queue()
 
 def audio_callback(indata, frames, time_info, status):
     if status:
-        print(f"Audio status: {status}", file=sys.stderr)
-    mono = np.squeeze(indata)
-    BUFFER.put(mono.copy())
+        print(f"Audio: {status}", file=sys.stderr)
+    audio_queue.put(np.squeeze(indata).copy())
 
-async def send_loop():
-    uri = config.WS_URL
-    async with websockets.connect(uri, max_size=None) as ws:
-        print(f"Connected to server: {uri}")
 
-        # Start audio stream
+# =========================
+# ENERGY GATE CONFIG
+# =========================
+ENERGY_THRESHOLD = 0.01        # 🔧 Tune theo mic (0.005 – 0.02)
+SILENCE_HYSTERESIS = 5         # số frame silence để tắt speech
+PREROLL_FRAMES = 2             # gửi bù để không mất phụ âm đầu
+
+
+def rms_energy(x: np.ndarray) -> float:
+    """Root Mean Square energy"""
+    x = x.astype(np.float32)
+    return float(np.sqrt(np.mean(x ** 2)))
+
+
+# =========================
+# MAIN
+# =========================
+async def main():
+    viewer_url = (
+        config.MODAL_URL.replace("wss://", "https://") + "/viewer"
+        if config.USE_MODAL
+        else f"http://127.0.0.1:{config.PORT}"
+    )
+
+    print("=" * 60)
+    print("ASR Realtime Client (Energy-gated)")
+    print("=" * 60)
+    print(f"Server: {config.WS_URL}")
+    print(f"Viewer: {viewer_url}")
+    print("=" * 60)
+    print("Open the viewer URL in browser to see transcription")
+    print("Press Ctrl+C to stop")
+    print("=" * 60)
+    print()
+
+    print("Connecting...")
+    async with websockets.connect(config.WS_URL, max_size=None) as ws:
+        print("Connected! Start speaking...\n")
+
+        # =========================
+        # AUDIO STREAM
+        # =========================
         stream = sd.InputStream(
-            samplerate=config.SAMPLE_RATE, 
-            channels=1, 
-            dtype='int16', 
-            callback=audio_callback, 
-            blocksize=config.CHUNK_SAMPLES
+            samplerate=config.SAMPLE_RATE,
+            channels=1,
+            dtype="int16",
+            callback=audio_callback,
+            blocksize=config.CHUNK_SAMPLES,
         )
         stream.start()
 
-        # Task to receive messages from server
-        async def recv_loop():
+        # =========================
+        # RECEIVE TASK
+        # =========================
+        async def recv():
             async for msg in ws:
                 data = json.loads(msg)
-                ttype = data.get("type")
-                
-                if ttype == "realtime":
-                    print(f"[Partial] {data.get('text')} | {data.get('trans')}")
-                elif ttype == "fullSentence":
-                    print(f"[Final] {data.get('text')}")
-                    print(f"   -> {data.get('trans')}")
-                elif ttype == "vad_start":
-                    print("[VAD] Start speaking")
-                elif ttype == "vad_stop":
-                    print("[VAD] Stop speaking")
-                else:
-                    print(f"[Server] {data}")
+                t = data.get("type")
 
-        recv_task = asyncio.create_task(recv_loop())
+                if t == "realtime":
+                    text = data.get("text", "")
+                    if text:
+                        print(f"\r[...] {text}", end="", flush=True)
+
+                elif t == "fullSentence":
+                    print("\r" + " " * 80, end="")
+                    print(f"\r[VI] {data.get('text','')}")
+                    print(f"[EN] {data.get('trans','')}\n")
+
+                elif t == "vad_start":
+                    print("\n[Listening...]")
+
+        recv_task = asyncio.create_task(recv())
+
+        # =========================
+        # SEND LOOP (ENERGY GATE)
+        # =========================
+        meta = json.dumps({"sampleRate": config.SAMPLE_RATE}).encode()
+        header = struct.pack("<I", len(meta)) + meta
+
+        speech_active = False
+        silence_frames = 0
+        preroll = deque(maxlen=PREROLL_FRAMES)
 
         try:
             while True:
-                if BUFFER.empty():
-                    await asyncio.sleep(0.01)
+                if audio_queue.empty():
+                    await asyncio.sleep(0.005)
                     continue
-                
-                chunk = BUFFER.get()
-                pcm_bytes = chunk.astype(np.int16).tobytes()
-                
-                metadata = {"sampleRate": config.SAMPLE_RATE}
-                meta_json = json.dumps(metadata)
-                meta_len = len(meta_json)
-                
-                message = struct.pack("<I", meta_len) + meta_json.encode("utf-8") + pcm_bytes
-                
-                try:
-                    await ws.send(message)
-                except websockets.exceptions.ConnectionClosed:
-                    print("\n⚠️ Server disconnected. Stopping client.")
-                    break
 
-        except KeyboardInterrupt:
-            print("\nStopping client...")
+                chunk = audio_queue.get()
+
+                # 🔊 Energy measurement
+                energy = rms_energy(chunk)
+
+                if energy >= ENERGY_THRESHOLD:
+                    if not speech_active:
+                        speech_active = True
+                        silence_frames = 0
+                    else:
+                        silence_frames = 0
+                else:
+                    if speech_active:
+                        silence_frames += 1
+                        if silence_frames >= SILENCE_HYSTERESIS:
+                            speech_active = False
+
+                # Lưu preroll
+                preroll.append(chunk)
+
+                # ⛔ Không gửi nếu không có giọng nói
+                if not speech_active:
+                    continue
+
+                # 🚀 Gửi preroll khi vừa bật speech
+                while preroll:
+                    pcm = preroll.popleft().astype(np.int16).tobytes()
+                    await ws.send(header + pcm)
+
+        except (KeyboardInterrupt, websockets.exceptions.ConnectionClosed):
+            print("\nDisconnected")
+
         finally:
             stream.stop()
             recv_task.cancel()
 
+
 if __name__ == "__main__":
-    try:
-        asyncio.run(send_loop())
-    except KeyboardInterrupt:
-        pass
+    asyncio.run(main())
