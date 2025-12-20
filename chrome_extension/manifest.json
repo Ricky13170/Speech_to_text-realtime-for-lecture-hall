@@ -1,0 +1,25 @@
+{
+  "manifest_version": 3,
+  "name": "ASR Audio Capture",
+  "version": "1.0",
+  "description": "Capture audio từ tab Chrome để chuyển đến hệ thống ASR",
+  
+  "permissions": [
+    "activeTab",
+    "tabCapture", 
+    "storage",
+    "tabs"
+  ],
+  
+  "background": {
+    "service_worker": "background.js"
+  },
+  
+  "action": {
+    "default_popup": "popup.html"
+  },
+  
+  "host_permissions": [
+    "<all_urls>"  
+  ]
+}
