@@ -1,96 +1,90 @@
-# ASR Realtime - Nhận dạng giọng nói thời gian thực
+# Real-time Vietnamese-English Speech Translation
 
-Hệ thống chuyển giọng nói thành văn bản theo thời gian thực, hỗ trợ dịch Việt - Anh.
+Translate Vietnamese speech to English in real-time for lecture halls. Uses Whisper Large V3 for E2E transcription and translation.
 
-## Tính năng
 
-- Nhận dạng giọng nói tiếng Việt realtime
-- Dịch tự động sang tiếng Anh
-- Giao diện web xem transcript
-- Hỗ trợ deploy lên Modal (GPU cloud)
+## Requirements
 
-## Cài đặt
+- Windows 10/11
+- Python 3.11+
+- Modal account (free tier available)
 
-```bash
-# Tạo môi trường ảo
-python -m venv .venv
-.venv\Scripts\activate  # Windows
 
-# Cài đặt dependencies
-pip install -r requirements.txt
-```
+## Setup with venv (Recommended)
 
-## Sử dụng
+```cmd
+# Create virtual environment
+python -m venv venv
 
-### Cách 1: Dùng Modal Cloud (Khuyến nghị)
+# Activate venv
+.\venv\Scripts\activate
 
-**Bước 1:** Đăng nhập Modal
+# Install dependencies
+pip install uv
+uv pip install -r requirements.txt
+uv sync
 
-```bash
-pip install modal
-modal token new
-```
+# Login to Modal 
+modal setup
 
-**Bước 2:** Deploy server
-
-```bash
-modal deploy modal_app.py
-```
-
-**Bước 3:** Chạy client
-
-```bash
+# Deploy to Modal
+modal deploy server.py
 python client.py
 ```
 
-Client sẽ hiện link để mở trình duyệt xem transcript.
 
-### Cách 2: Chạy local (Cần GPU)
+## Running the System
 
-**Bước 1:** Chạy server
-
-```bash
-python server.py
+After deploying, you get a URL like:
+```
+https://YOUR_USERNAME--asr-thesis-asr-web.modal.run
 ```
 
-**Bước 2:** Chạy client
+Open this URL in your browser to use the app.
 
-```bash
+
+## Development
+
+To make changes and redeploy:
+
+```cmd
+# Activate venv
+.\venv\Scripts\activate
+
+# Edit code, then deploy
+modal deploy server.py
 python client.py
 ```
 
-**Bước 3:** Mở trình duyệt
 
-```text
-http://localhost:8000
-```
+## Usage
 
-## Cấu hình
+1. Select audio source: Microphone or Computer Audio
+2. Click Record button
+3. Speak in Vietnamese
+4. View real-time transcription and translation
+5. Click Stop when done
 
-Sửa file `config.py`:
 
-| Tham số | Mô tả | Mặc định |
-|---------|-------|----------|
-| `USE_MODAL` | Dùng Modal cloud | `True` |
-| `MODEL_ID` | Model ASR | `openai/whisper-large-v3` |
-| `VAD_THRESHOLD` | Độ nhạy phát hiện giọng nói | `0.6` |
-| `SILENCE_LIMIT` | Thời gian im lặng để kết thúc câu | `0.8s` |
+## Troubleshooting
 
-## Cấu trúc project
+No transcription output:
+- Check microphone permission in browser
+- Open F12 Console to see errors
+- Speak louder and clearer
 
-```text
-├── client.py          # Thu âm và gửi audio
-├── server.py          # Server local (cần GPU)
-├── modal_app.py       # Server trên Modal cloud
-├── audio_processor.py # Xử lý audio, VAD
-├── config.py          # Cấu hình
-├── overlay_client.html # Giao diện web viewer
-└── requirements.txt   # Dependencies
-```
+WebSocket connection error:
+- Check Modal app status: modal app list
+- Redeploy: modal deploy server.py
 
-## Yêu cầu
+Cold start slow:
+- First request takes 30-60s to load models
+- Subsequent requests are fast
 
-- Python 3.10+
-- Microphone
-- GPU NVIDIA (nếu chạy local)
-- Tài khoản Modal (nếu dùng cloud)
+
+## Technical Specs
+
+- ASR/Translation Model: openai/whisper-large-v3
+- GPU: NVIDIA A10G (Modal Cloud)
+- Sample Rate: 16kHz
+- Window: 2s with 1s overlap
