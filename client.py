@@ -3,7 +3,7 @@
 ASR Thesis - Client Launcher
 """
 
-MODAL_ROOT_URL = "https://ricky13170--asr-thesis-asr-web.modal.run"
+MODAL_ROOT_URL = "https://huynguyenwork14--asr-thesis-asr-web.modal.run"
 
 def main():
     # Tự động thêm /app/ để vào thẳng giao diện
