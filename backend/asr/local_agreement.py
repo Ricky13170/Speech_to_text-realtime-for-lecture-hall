@@ -25,7 +25,6 @@ class LocalAgreement:
             self.history = self.history[-self.n:]
             
         if len(self.history) < self.n:
-            # Chưa đủ dữ liệu để so sánh, coi tất cả là unstable
             return "", new_text
 
         # 2. Tìm phần chung dài nhất (Longest Common Prefix) theo TỪ
@@ -45,8 +44,6 @@ class LocalAgreement:
         # 3. Kết quả
         stable_text = " ".join(common_words)
         
-        # Unstable là phần còn lại của new_text sau khi trừ đi stable
-        # Logic: Lấy new_text, tìm xem stable_text nằm ở đâu và cắt phần sau nó
         if stable_text:
             # Tìm vị trí kết thúc của stable_text trong new_text
             # Cộng thêm 1 để bỏ qua dấu cách
