@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 ASR Thesis - Client Launcher
 """
