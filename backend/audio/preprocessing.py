@@ -38,14 +38,11 @@ class AudioPreprocessor:
         # Chỉ lọc nếu chunk đủ dài (để tránh lỗi scipy)
         if self.b is not None and len(audio) > 18: 
             try:
-                # Dùng lfilter thay vì filtfilt nếu muốn realtime cực gắt (nhưng filtfilt sạch hơn)
-                # Ở đây filtfilt vẫn ổn cho chunk > 0.5s
                 audio = signal.filtfilt(self.b, self.a, audio).astype(np.float32)
             except Exception:
-                pass # Bỏ qua nếu lỗi lọc
+                pass
 
         # 3. Noise Reduction (KHUYÊN DÙNG: OFF)
-        # Frontend đã có noiseSuppression: true, nên tắt cái này để giảm tải Server
         if NOISE_REDUCE_ENABLED:
             try:
                 import noisereduce as nr
@@ -60,16 +57,13 @@ class AudioPreprocessor:
                 print(f"[Preprocess] NR Error: {e}")
 
         # 4. Normalize (Optimized: Soft Clipping)
-        # Thay vì phóng đại tiếng ồn, ta chỉ đảm bảo âm thanh không bị vỡ (clipping)
+        # đảm bảo âm thanh không bị vỡ (clipping)
         if NORMALIZE_ENABLED:
             max_val = np.max(np.abs(audio))
             
             # Nếu tín hiệu quá lớn (gần vỡ tiếng), giảm gain xuống
             if max_val > 1.0:
                 audio = audio / max_val * 0.95
-            
-            # Nếu tín hiệu quá nhỏ (im lặng), KHÔNG phóng đại lên (tránh Pumping)
-            # Code cũ của bạn: audio / max_val -> Sẽ biến tiếng muỗi kêu thành tiếng trực thăng.
             
         return audio
         
