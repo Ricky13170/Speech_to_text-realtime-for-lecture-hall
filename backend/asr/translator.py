@@ -23,7 +23,7 @@ class NLLBTranslator:
         print(f"[Translator] Loading {self.model_name}...")
         
         device = "cuda" if torch.cuda.is_available() else "cpu"
-        # 👇 Tối ưu 1: Dùng float16 nếu chạy trên GPU để tăng tốc
+        # Tối ưu 1: Dùng float16 nếu chạy trên GPU để tăng tốc
         dtype = torch.float16 if device == "cuda" else torch.float32
         
         try:
@@ -85,7 +85,7 @@ class NLLBTranslator:
                 # num_beams=1 (Greedy Search) -> Nhanh nhất
                 # num_beams=2 -> Cân bằng
                 num_beams=1, 
-                do_sample=False, # Đảm bảo kết quả ổn định, không ngẫu nhiên
+                do_sample=False, 
                 early_stopping=True
             )
         

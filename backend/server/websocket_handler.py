@@ -11,7 +11,7 @@ from backend.config import (
     SILENCE_LIMIT,
     MAX_SEGMENT_SEC,
     OVERLAP_SEC,
-    MIN_DECODE_SEC,
+    MIN_DECODE_SEC,  
 )
 
 
@@ -19,11 +19,18 @@ class WebSocketHandler:
     """
     WebSocket Handler
     Architecture: Segment-based (VAD-driven)
+
+    Correct gate order:
+        Energy gate (per chunk)
+        → VAD gate (per chunk)
+        → Segmenter
+        → Speech-ratio gate (FINAL segment only)
+        → Whisper
     """
 
     def __init__(self):
         self.vad = VADManager()
-        self.asr = WhisperStreaming()          # Whisper E2E (segment-based)
+        self.asr = WhisperStreaming()
         self.agreement = LocalAgreement()
 
         self.segmenter = SpeechSegmentBuffer(
@@ -37,6 +44,10 @@ class WebSocketHandler:
         self.session_start = None
         self.last_stable = ""
 
+    # =========================================================
+    # Init
+    # =========================================================
+
     async def init(self):
         print("[Handler] Loading models...")
         self.vad.load()
@@ -44,7 +55,7 @@ class WebSocketHandler:
         print("[Handler] Ready!")
 
     # =========================================================
-    # WebSocket message router
+    # WebSocket router
     # =========================================================
 
     async def handle(self, message: str):
@@ -112,7 +123,7 @@ class WebSocketHandler:
         return json.dumps({"type": "status", "status": "context_set"})
 
     # =========================================================
-    # Audio handling (CORE)
+    # Audio handling (REALTIME SAFE)
     # =========================================================
 
     async def _handle_audio(self, data):
@@ -125,15 +136,34 @@ class WebSocketHandler:
             .astype(np.float32) / 32768.0
         )
 
-        now_ts = datetime.now().timestamp()
+        # ============================
+        # 1️⃣ Energy gate
+        # ============================
+
+        rms = self.compute_rms(audio)
+        if rms < 0.003:
+            return None
+
+        if not self.energy_is_consistent(audio):
+            return None
+
+        # ============================
+        # 2️⃣ VAD gate (per chunk)
+        # ============================
+
         is_speech = self.vad.is_speech(audio)
 
+        # ============================
+        # 3️⃣ Segmenter
+        # ============================
+
+        now_ts = datetime.now().timestamp()
         result = self.segmenter.process(audio, is_speech, now_ts)
+
         if result is None:
             return None
 
-        kind, chunk = result   # kind = "partial" | "final"
-
+        kind, chunk = result
         sec = len(chunk) / SAMPLE_RATE
         print(f"\n🧩 Segment → {kind.upper()} | {sec:.2f}s")
 
@@ -143,18 +173,22 @@ class WebSocketHandler:
         )
 
     # =========================================================
-    # Decode
+    # Decode (SEGMENT LEVEL)
     # =========================================================
 
     def _decode_chunk(self, chunk: np.ndarray, is_final: bool):
         duration = len(chunk) / SAMPLE_RATE
-        if duration < MIN_DECODE_SEC:
-            print("⚠️ Skip decode (too short)")
+
+        # ❗ PARTIAL cần đủ dài để tránh spam
+        if not is_final and duration < MIN_DECODE_SEC:
+            print("⚠️ Skip PARTIAL decode (too short)")
             return None
 
-        # 🚫 KHÔNG reset_audio
-        # 🚫 KHÔNG add_audio
-        # ✅ Whisper nhận audio nguyên khối
+        # ⭐ FINAL: speech-ratio gate đặt ĐÚNG CHỖ
+        if is_final:
+            if not self.speech_ratio_gate(chunk):
+                print("⚠️ Skip FINAL decode (low speech ratio)")
+                return None
 
         result = self.asr.transcribe(
             audio=chunk,
@@ -172,11 +206,13 @@ class WebSocketHandler:
         if raw_en:
             print(f"      [EN] {raw_en}")
 
-        # ===== Local Agreement =====
+        # ============================
+        # Local agreement
+        # ============================
+
         stable, unstable = self.agreement.process(raw_vi)
         display = f"{stable} {unstable}".strip()
 
-        # ===== Context update (FINAL only) =====
         if is_final and stable:
             self.asr.set_context(stable)
             self.last_stable = stable
@@ -193,9 +229,64 @@ class WebSocketHandler:
         })
 
     # =========================================================
+    # Utils
+    # =========================================================
 
     def _get_timestamp(self):
         if not self.session_start:
             return "00:00"
         elapsed = (datetime.now() - self.session_start).total_seconds()
         return f"{int(elapsed // 60):02d}:{int(elapsed % 60):02d}"
+
+    @staticmethod
+    def compute_rms(audio: np.ndarray):
+        return np.sqrt(np.mean(audio ** 2) + 1e-8)
+
+    @staticmethod
+    def energy_is_consistent(
+        audio: np.ndarray,
+        frame_ms: int = 20,
+        min_cv: float = 0.18
+    ) -> bool:
+        frame_len = int(SAMPLE_RATE * frame_ms / 1000)
+        if len(audio) < frame_len * 3:
+            return True  # realtime chunk → đừng chặn
+
+        frames = [
+            audio[i:i + frame_len]
+            for i in range(0, len(audio) - frame_len, frame_len)
+        ]
+
+        rms_vals = np.array([
+            np.sqrt(np.mean(f ** 2) + 1e-8) for f in frames
+        ])
+
+        cv = rms_vals.std() / (rms_vals.mean() + 1e-8)
+        return cv >= min_cv
+
+    # =========================================================
+    # ⭐ Speech ratio gate (SEGMENT ONLY)
+    # =========================================================
+
+    def speech_ratio_gate(
+        self,
+        audio: np.ndarray,
+        frame_ms: int = 30,
+        min_ratio: float = 0.25
+    ) -> bool:
+        frame_len = int(SAMPLE_RATE * frame_ms / 1000)
+        if len(audio) < frame_len * 3:
+            return True  # câu rất ngắn vẫn cho qua
+
+        speech = 0
+        total = 0
+
+        for i in range(0, len(audio) - frame_len, frame_len):
+            frame = audio[i:i + frame_len]
+            if self.vad.is_speech(frame):
+                speech += 1
+            total += 1
+
+        ratio = speech / max(total, 1)
+        print(f"🔎 Speech ratio: {ratio:.2f}")
+        return ratio >= min_ratio

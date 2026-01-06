@@ -2,7 +2,6 @@ import sys
 import pathlib
 from modal import App, Image, asgi_app, Volume, enter
 
-# Thêm đường dẫn hiện tại vào sys.path để import được backend
 sys.path.append(str(pathlib.Path(__file__).parent))
 
 from backend.config import (
@@ -146,4 +145,3 @@ class ASR:
         web_app.mount("/app", StaticFiles(directory="/root/frontend", html=True), name="frontend")
         
         return web_app
-        

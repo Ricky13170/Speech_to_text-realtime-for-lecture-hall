@@ -12,8 +12,8 @@ class VADManager:
         self.base_threshold = 0.015
         
         # Biến để theo dõi độ ồn môi trường (Noise Floor)
-        self.noise_level = 0.005  # Giả định ban đầu phòng khá yên tĩnh
-        self.alpha = 0.05  # Tốc độ học độ ồn (0.05 = học chậm để ko bắt nhầm giọng nói)
+        self.noise_level = 0.005  
+        self.alpha = 0.05  
         
         self._loaded = True
     
