@@ -1,9 +1,3 @@
-/**
- * ASR Thesis - Clean Modern Design
- * Matching TransyncAI style
- */
-
-/* Reset */
 * {
     margin: 0;
     padding: 0;
@@ -17,6 +11,7 @@
     --danger: #ef4444;
     --text: #1f2937;
     --text-light: #6b7280;
+    --text-muted: #9ca3af;
     --bg: #ffffff;
     --bg-gray: #f9fafb;
     --border: #e5e7eb;
@@ -29,7 +24,6 @@ body {
     line-height: 1.5;
 }
 
-/* Layout */
 .app {
     min-height: 100vh;
     display: flex;
@@ -41,7 +35,6 @@ body {
     flex-direction: column;
 }
 
-/* Toolbar */
 .toolbar {
     background: white;
     border-bottom: 1px solid var(--border);
@@ -65,7 +58,6 @@ body {
     justify-content: center;
 }
 
-/* Logo Text Only */
 .logo-text {
     font-size: 1.25rem;
     font-weight: 600;
@@ -73,7 +65,6 @@ body {
     margin: 0;
 }
 
-/* Dropdown */
 .dropdown {
     position: relative;
 }
@@ -96,8 +87,11 @@ body {
 }
 
 .dropdown-arrow {
-    font-size: 0.7rem;
-    color: var(--text-light);
+    width: 0;
+    height: 0;
+    border-left: 4px solid transparent;
+    border-right: 4px solid transparent;
+    border-top: 5px solid var(--text-light);
 }
 
 .dropdown-menu {
@@ -136,28 +130,26 @@ body {
     border-radius: 0 0 6px 6px;
 }
 
-/* Horizontal Audio Meter */
 .audio-meter-horizontal {
     display: flex;
     align-items: center;
-    gap: 4px;
+    gap: 3px;
     height: 32px;
 }
 
 .meter-bar-h {
     width: 4px;
-    height: 20px;
+    height: 16px;
     background: var(--border);
     border-radius: 2px;
     transition: all 0.1s;
 }
 
 .meter-bar-h.active {
-    background: linear-gradient(90deg, var(--success), #059669);
-    height: 28px;
+    background: var(--success);
+    height: 24px;
 }
 
-/* Timer */
 .timer {
     font-variant-numeric: tabular-nums;
     font-size: 1.5rem;
@@ -167,10 +159,9 @@ body {
     text-align: center;
 }
 
-/* Square Record Button */
-.record-btn-square {
-    width: 60px;
-    height: 60px;
+.record-btn {
+    width: 56px;
+    height: 56px;
     background: linear-gradient(135deg, var(--primary), var(--primary-dark));
     border: none;
     border-radius: 8px;
@@ -182,38 +173,28 @@ body {
     box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
 }
 
-.record-btn-square:hover {
+.record-btn:hover {
     transform: translateY(-2px);
     box-shadow: 0 6px 16px rgba(59, 130, 246, 0.4);
 }
 
-.record-btn-square.recording {
+.record-btn.recording {
     background: linear-gradient(135deg, var(--danger), #dc2626);
     animation: pulse 2s infinite;
 }
 
 @keyframes pulse {
-
-    0%,
-    100% {
-        opacity: 1;
-    }
-
-    50% {
-        opacity: 0.85;
-    }
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.85; }
 }
 
-.record-btn-square svg {
-    width: 28px;
-    height: 28px;
+.record-btn svg {
+    width: 24px;
+    height: 24px;
     color: white;
     fill: white;
-    /* Fix icon fill */
 }
 
-/* Icon Buttons */
-.icon-btn,
 .btn-icon {
     width: 36px;
     height: 36px;
@@ -230,20 +211,10 @@ body {
     font-weight: 500;
 }
 
-.icon-btn:hover,
 .btn-icon:hover {
     background: #e5e7eb;
 }
 
-.icon-btn svg,
-.btn-icon svg {
-    width: 18px;
-    height: 18px;
-    stroke: currentColor;
-    fill: none;
-}
-
-/* Content Area */
 .content {
     flex: 1;
     display: flex;
@@ -286,7 +257,6 @@ body {
     background: white;
 }
 
-/* Transcript Segments - Minimal Style */
 .transcript-segment {
     background: transparent;
     border: none;
@@ -302,7 +272,6 @@ body {
 
 .segment-meta {
     display: none;
-    /* Ẩn timestamp và segment ID để gọn hơn */
 }
 
 .timestamp {
@@ -312,70 +281,46 @@ body {
 }
 
 .vi-text {
+    font-size: 1.1rem;
+    line-height: 1.7;
+    color: #000000;
+    font-weight: 700;
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+    white-space: pre-wrap;
+}
+
+.en-text {
     font-size: 1rem;
     line-height: 1.6;
     color: #000000;
-    /* Final: Pure black */
-    font-weight: 600;
-    transition: color 0.2s ease;
-}
-
-/* Tiếng Anh - TransyncAI style */
-.en-text,
-.transcript-en {
-    font-size: 0.95rem;
-    line-height: 1.6;
-    color: #4A4A4A;
-    /* Slightly lighter than Vietnamese */
-    font-style: normal;
-    /* No italic for cleaner look */
-    border-left: 3px solid var(--border);
-    padding-left: 10px;
+    border-left: 3px solid var(--primary);
+    padding-left: 12px;
     margin-top: 8px;
     display: block;
-    font-weight: 400;
-    transition: color 0.2s ease;
+    font-weight: 600;
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+    white-space: pre-wrap;
 }
 
-/* TransyncAI Style: Partial = Gray, Final = Black */
 .transcript-segment.partial .vi-text {
-    color: #4A4A4A;
-    /* Gray - đang xử lý */
-    font-weight: 400;
+    color: #000000;
+    font-weight: 700;
 }
 
 .transcript-segment.partial .en-text {
-    color: #6B7280;
-    /* Lighter gray for translation in progress */
+    color: #333333;
+    font-weight: 500;
 }
 
+.font-sm .vi-text { font-size: 0.9rem; }
+.font-sm .en-text { font-size: 0.85rem; }
+.font-lg .vi-text { font-size: 1.2rem; }
+.font-lg .en-text { font-size: 1.1rem; }
+.font-xl .vi-text { font-size: 1.4rem; }
+.font-xl .en-text { font-size: 1.3rem; }
 
-/* Font Size Classes */
-.font-sm .vi-text {
-    font-size: 0.9rem;
-}
-
-.font-sm .en-text {
-    font-size: 0.85rem;
-}
-
-.font-lg .vi-text {
-    font-size: 1.2rem;
-}
-
-.font-lg .en-text {
-    font-size: 1.1rem;
-}
-
-.font-xl .vi-text {
-    font-size: 1.4rem;
-}
-
-.font-xl .en-text {
-    font-size: 1.3rem;
-}
-
-/* Empty State */
 .empty-state {
     display: flex;
     flex-direction: column;
@@ -390,21 +335,12 @@ body {
     margin: 0.25rem 0;
 }
 
-/* Sidebar (Index Page) */
 .sidebar {
     width: 320px;
     background: white;
     border-left: 1px solid var(--border);
     display: none;
-    /* Hidden by default on mobile if needed */
     flex-direction: column;
-}
-
-/* Force flex for desktop sidebar */
-@media (min-width: 1024px) {
-    .sidebar {
-        display: flex;
-    }
 }
 
 .sidebar.active {
@@ -440,7 +376,6 @@ body {
     padding: 1rem;
 }
 
-/* Recording Card */
 .recording-card {
     background: var(--bg-gray);
     border: 1px solid var(--border);
@@ -470,7 +405,8 @@ body {
     text-overflow: ellipsis;
 }
 
-.recording-duration {
+.recording-duration,
+.recording-time {
     font-size: 0.75rem;
     color: var(--text-light);
     font-variant-numeric: tabular-nums;
@@ -515,29 +451,6 @@ body {
     color: var(--danger);
 }
 
-.recording-actions {
-    display: flex;
-    gap: 0.5rem;
-}
-
-.btn-view {
-    width: 100%;
-    padding: 0.5rem;
-    background: white;
-    border: 1px solid var(--primary);
-    border-radius: 4px;
-    cursor: pointer;
-    font-size: 0.85rem;
-    color: var(--primary);
-    transition: all 0.2s;
-}
-
-.btn-view:hover {
-    background: var(--primary);
-    color: white;
-}
-
-/* Modal */
 .modal-overlay {
     position: fixed;
     inset: 0;
@@ -584,6 +497,9 @@ body {
     cursor: pointer;
     border-radius: 6px;
     color: var(--text-light);
+    display: flex;
+    align-items: center;
+    justify-content: center;
 }
 
 .modal-close:hover {
@@ -594,6 +510,12 @@ body {
     padding: 1.5rem;
 }
 
+.modal-body .text-muted {
+    color: var(--text-muted);
+    font-size: 0.875rem;
+    margin-top: 0.5rem;
+}
+
 .modal-footer {
     padding: 1rem 1.5rem;
     border-top: 1px solid var(--border);
@@ -602,9 +524,12 @@ body {
     justify-content: flex-end;
 }
 
-/* Form */
 .form-group {
     margin-bottom: 1.5rem;
+}
+
+.form-group:last-child {
+    margin-bottom: 0;
 }
 
 .form-group label {
@@ -621,6 +546,7 @@ body {
     border: 1px solid var(--border);
     border-radius: 6px;
     font-size: 0.95rem;
+    font-family: inherit;
 }
 
 .form-group input:focus,
@@ -635,13 +561,13 @@ body {
     resize: vertical;
 }
 
-/* Buttons */
 .btn {
     padding: 0.5rem 1rem;
     border-radius: 6px;
     font-size: 0.9rem;
     cursor: pointer;
     transition: all 0.2s;
+    font-family: inherit;
 }
 
 .btn-primary {
@@ -664,7 +590,16 @@ body {
     background: var(--bg-gray);
 }
 
-/* Notification */
+.btn-danger {
+    background: var(--danger);
+    color: white;
+    border: none;
+}
+
+.btn-danger:hover {
+    background: #dc2626;
+}
+
 .notification {
     position: fixed;
     bottom: 2rem;
@@ -688,14 +623,12 @@ body {
         transform: translateY(1rem);
         opacity: 0;
     }
-
     to {
         transform: translateY(0);
         opacity: 1;
     }
 }
 
-/* Scrollbar */
 ::-webkit-scrollbar {
     width: 8px;
     height: 8px;
@@ -714,8 +647,6 @@ body {
     background: #94a3b8;
 }
 
-
-/* 👇👇 START: CSS CHO TRANG RECORDINGS (RECORDINGS.HTML) 👇👇 */
 .recordings-page {
     display: flex;
     height: 100vh;
@@ -728,6 +659,11 @@ body {
     border-right: 1px solid var(--border);
     display: flex;
     flex-direction: column;
+}
+
+.sidebar-title {
+    font-size: 1.1rem;
+    font-weight: 600;
 }
 
 .recordings-list {
@@ -771,10 +707,11 @@ body {
     align-items: center;
     justify-content: center;
     color: var(--text-light);
+    font-weight: bold;
 }
 
 .menu-btn:hover {
-    background: var(--bg-gray);
+    background: var(--border);
 }
 
 .context-menu {
@@ -799,6 +736,14 @@ body {
     cursor: pointer;
     font-size: 0.875rem;
     transition: background 0.2s;
+}
+
+.context-menu-item:first-child {
+    border-radius: 8px 8px 0 0;
+}
+
+.context-menu-item:last-child {
+    border-radius: 0 0 8px 8px;
 }
 
 .context-menu-item:hover {
@@ -836,16 +781,13 @@ body {
     color: var(--text-light);
 }
 
-.back-to-live {
+.back-link {
     font-size: 0.875rem;
     color: var(--primary);
     text-decoration: none;
-    display: flex;
-    align-items: center;
-    gap: 0.25rem;
 }
 
-.back-to-live:hover {
+.back-link:hover {
     text-decoration: underline;
 }
 
@@ -869,6 +811,10 @@ body {
     margin-bottom: 1.5rem;
 }
 
+.transcript-block:last-child {
+    margin-bottom: 0;
+}
+
 .transcript-timestamp {
     font-size: 0.85rem;
     font-weight: 600;
@@ -876,49 +822,45 @@ body {
     margin-bottom: 0.5rem;
 }
 
-/* Responsive */
-@media (max-width: 1024px) {
-    .sidebar {
-        position: fixed;
-        right: 0;
-        top: 0;
-        bottom: 0;
-        z-index: 100;
-        box-shadow: -4px 0 12px rgba(0, 0, 0, 0.1);
-    }
-}
-
-/* frontend/style.css */
 @media (max-width: 1024px) {
     .sidebar {
         position: fixed;
         right: 0;
         top: 60px;
-        /* Chiều cao toolbar */
         bottom: 0;
         z-index: 100;
         box-shadow: -4px 0 12px rgba(0, 0, 0, 0.1);
         transform: translateX(100%);
-        /* Mặc định ẩn sang phải */
         transition: transform 0.3s ease;
         display: flex !important;
-        /* Force flex để override display:none */
     }
 
     .sidebar.active {
         transform: translateX(0);
-        /* Trượt ra khi active */
     }
 }
 
 @media (max-width: 768px) {
     .toolbar {
         flex-wrap: wrap;
+        padding: 0.75rem 1rem;
     }
 
     .toolbar-center {
         order: 3;
         flex: 1 0 100%;
-        margin-top: 1rem;
+        margin-top: 0.75rem;
+    }
+
+    .recordings-page {
+        flex-direction: column;
+    }
+
+    .recordings-sidebar {
+        width: 100%;
+        height: auto;
+        max-height: 40vh;
+        border-right: none;
+        border-bottom: 1px solid var(--border);
     }
 }

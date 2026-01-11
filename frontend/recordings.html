@@ -3,17 +3,17 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Translation Records | ASR Thesis</title>
+  <title>History</title>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
   <div class="recordings-page">
     <aside class="recordings-sidebar">
       <div class="sidebar-header">
-        <h2 class="sidebar-title">Translation Records</h2>
+        <h2 class="sidebar-title">History</h2>
       </div>
       <div class="recordings-list" id="recordingsList">
-        <div class="empty-state" style="padding: 2rem 1rem; text-align: center; color: #999;">
+        <div class="empty-state">
           <p>No recordings yet</p>
         </div>
       </div>
@@ -25,18 +25,13 @@
           <h2 id="recordingTitle">Select a recording</h2>
           <div class="content-subtitle" id="recordingSubtitle"></div>
         </div>
-        <a href="./index.html" class="back-to-live">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="m15 18-6-6 6-6"/>
-          </svg>
-          Back to Live
-        </a>
+        <a href="./index.html" class="back-link">Back to Live</a>
       </div>
 
       <div class="content-body" id="transcriptContent">
         <div class="transcript-container-full">
-          <div class="empty-state" style="text-align: center; padding: 4rem 2rem; color: #999;">
-            <p>Select a recording from the sidebar to view transcript</p>
+          <div class="empty-state">
+            <p>Select a recording from the sidebar</p>
           </div>
         </div>
       </div>
@@ -47,7 +42,7 @@
     <div class="modal">
       <div class="modal-header">
         <h3>Rename Recording</h3>
-        <button class="modal-close" onclick="closeRenameModal()">×</button>
+        <button class="modal-close" id="renameModalClose" title="Close">x</button>
       </div>
       <div class="modal-body">
         <div class="form-group">
@@ -56,8 +51,8 @@
         </div>
       </div>
       <div class="modal-footer">
-        <button class="btn btn-secondary" onclick="closeRenameModal()">Cancel</button>
-        <button class="btn btn-primary" onclick="saveRename()">Save</button>
+        <button class="btn btn-secondary" id="renameModalCancel">Cancel</button>
+        <button class="btn btn-primary" id="renameModalSave">Save</button>
       </div>
     </div>
   </div>
@@ -66,207 +61,19 @@
     <div class="modal">
       <div class="modal-header">
         <h3>Delete Recording</h3>
-        <button class="modal-close" onclick="closeDeleteModal()">×</button>
+        <button class="modal-close" id="deleteModalClose" title="Close">x</button>
       </div>
       <div class="modal-body">
-        <p>Are you sure you want to delete this recording? This action cannot be undone.</p>
+        <p>Delete this recording permanently?</p>
+        <p class="text-muted">This action cannot be undone.</p>
       </div>
       <div class="modal-footer">
-        <button class="btn btn-secondary" onclick="closeDeleteModal()">Cancel</button>
-        <button class="btn btn-primary" style="background: #ef4444;" onclick="confirmDelete()">Delete</button>
+        <button class="btn btn-secondary" id="deleteModalCancel">Cancel</button>
+        <button class="btn btn-danger" id="deleteModalConfirm">Delete</button>
       </div>
     </div>
   </div>
 
-  <script>
-    let currentRecordings = [];
-    let currentRecordingId = null;
-
-    // Load recordings on page load
-    window.addEventListener('DOMContentLoaded', () => {
-      loadRecordings();
-    });
-
-    function loadRecordings() {
-      try {
-          currentRecordings = JSON.parse(localStorage.getItem('recordings') || '[]');
-      } catch (e) {
-          currentRecordings = [];
-      }
-      
-      const list = document.getElementById('recordingsList');
-      list.innerHTML = '';
-      
-      if (currentRecordings.length === 0) {
-        list.innerHTML = '<div class="empty-state" style="padding: 2rem 1rem; text-align: center; color: #999;"><p>No recordings yet</p></div>';
-        return;
-      }
-      
-      // Sắp xếp mới nhất lên đầu
-      currentRecordings.sort((a, b) => b.id - a.id);
-      
-      currentRecordings.forEach((recording, index) => {
-        const item = document.createElement('div');
-        item.className = 'recording-item' + (index === 0 ? ' active' : '');
-        item.setAttribute('data-id', recording.id);
-        
-        const displayName = recording.customName || `${recording.date} ${recording.time}`;
-        
-        item.innerHTML = `
-          <div class="recording-info">
-            <div class="recording-date">${displayName}</div>
-            <div class="recording-time">${recording.time} • ${recording.duration}</div>
-          </div>
-          <div class="recording-actions">
-            <button class="menu-btn" onclick="toggleMenu(event, ${recording.id})">⋯</button>
-            <div class="context-menu" id="menu-${recording.id}">
-              <div class="context-menu-item" onclick="renameRecording(${recording.id})">Rename</div>
-              <div class="context-menu-item delete" onclick="deleteRecording(${recording.id})">Delete</div>
-            </div>
-          </div>
-        `;
-        
-        item.addEventListener('click', function(e) {
-          if (!e.target.closest('.recording-actions')) {
-            selectRecording(recording.id);
-          }
-        });
-        
-        list.appendChild(item);
-      });
-      
-      // Load selected recording
-      const selectedId = localStorage.getItem('selectedRecordingId');
-      if (selectedId && currentRecordings.find(r => r.id == selectedId)) {
-        selectRecording(selectedId);
-        localStorage.removeItem('selectedRecordingId');
-      } else if (currentRecordings.length > 0) {
-        selectRecording(currentRecordings[0].id);
-      }
-    }
-
-    function selectRecording(id) {
-      currentRecordingId = id;
-      
-      // Update active state
-      document.querySelectorAll('.recording-item').forEach(item => {
-        item.classList.toggle('active', item.getAttribute('data-id') == id);
-      });
-      
-      // Find recording
-      const recording = currentRecordings.find(r => r.id == id);
-      if (!recording) return;
-      
-      // Update header
-      const titleEl = document.getElementById('recordingTitle');
-      const subTitleEl = document.getElementById('recordingSubtitle');
-      
-      if(titleEl) titleEl.textContent = recording.customName || `${recording.date} ${recording.time}`;
-      if(subTitleEl) subTitleEl.textContent = `Duration: ${recording.duration}`;
-      
-      // Update transcript
-      const container = document.querySelector('.transcript-container-full');
-      container.innerHTML = '';
-      
-      if (!recording.transcript || recording.transcript.length === 0) {
-        container.innerHTML = '<div class="empty-state" style="text-align: center; padding: 4rem 2rem; color: #999;"><p>No transcript available</p></div>';
-        return;
-      }
-      
-      recording.transcript.forEach(block => {
-        const div = document.createElement('div');
-        div.className = 'transcript-block';
-        // Sử dụng style giống trang chính
-        div.innerHTML = `
-          <div class="transcript-timestamp">${block.timestamp}</div>
-          <div class="transcript-vi">${block.vi}</div>
-          ${block.en ? `<div class="transcript-en en-text">${block.en}</div>` : ''}
-        `;
-        container.appendChild(div);
-      });
-    }
-
-    function toggleMenu(event, id) {
-      event.stopPropagation();
-      const menu = document.getElementById(`menu-${id}`);
-      
-      document.querySelectorAll('.context-menu').forEach(m => {
-        if (m !== menu) m.classList.remove('active');
-      });
-      
-      if(menu) menu.classList.toggle('active');
-    }
-
-    let currentRenameId = null;
-
-    function renameRecording(id) {
-      currentRenameId = id;
-      document.getElementById('renameModal').classList.add('active');
-      const input = document.getElementById('renameInput');
-      input.value = '';
-      input.focus();
-      closeAllMenus();
-    }
-
-    function closeRenameModal() {
-      document.getElementById('renameModal').classList.remove('active');
-      currentRenameId = null;
-    }
-
-    function saveRename() {
-      const newName = document.getElementById('renameInput').value.trim();
-      if (newName && currentRenameId) {
-        const idx = currentRecordings.findIndex(r => r.id == currentRenameId);
-        if (idx !== -1) {
-          currentRecordings[idx].customName = newName;
-          localStorage.setItem('recordings', JSON.stringify(currentRecordings));
-          closeRenameModal();
-          loadRecordings();
-          
-          // Select lại thằng vừa rename
-          selectRecording(currentRenameId);
-        }
-      } else {
-        closeRenameModal();
-      }
-    }
-
-    let deleteTargetId = null;
-
-    function deleteRecording(id) {
-      deleteTargetId = id;
-      document.getElementById('deleteModal').classList.add('active');
-      closeAllMenus();
-    }
-
-    function closeDeleteModal() {
-      document.getElementById('deleteModal').classList.remove('active');
-      deleteTargetId = null;
-    }
-
-    function confirmDelete() {
-      if (deleteTargetId) {
-        currentRecordings = currentRecordings.filter(r => r.id != deleteTargetId);
-        localStorage.setItem('recordings', JSON.stringify(currentRecordings));
-        loadRecordings();
-        
-        // Nếu xóa thằng đang chọn, clear màn hình phải
-        if (deleteTargetId == currentRecordingId) {
-            document.getElementById('recordingTitle').textContent = "Select a recording";
-            document.getElementById('recordingSubtitle').textContent = "";
-            document.querySelector('.transcript-container-full').innerHTML = '<div class="empty-state" style="text-align: center; padding: 4rem 2rem; color: #999;"><p>Select a recording...</p></div>';
-        }
-      }
-      closeDeleteModal();
-    }
-
-    function closeAllMenus() {
-      document.querySelectorAll('.context-menu').forEach(m => m.classList.remove('active'));
-    }
-
-    document.addEventListener('click', () => {
-      closeAllMenus();
-    });
-  </script>
+  <script type="module" src="js/recordings.js"></script>
 </body>
 </html>

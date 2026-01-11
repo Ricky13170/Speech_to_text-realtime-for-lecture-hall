@@ -1,9 +1,16 @@
-# Python
+# --- Python & Environment ---
 __pycache__/
 *.py[cod]
 *$py.class
 *.so
 .Python
+env/
+venv/
+.venv/
+.uv/
+uv.lock
+
+# --- Dependencies & Packages ---
 build/
 develop-eggs/
 dist/
@@ -19,67 +26,43 @@ wheels/
 *.egg-info/
 .installed.cfg
 *.egg
+node_modules/
 
-# Virtual Environment
-venv/
-.venv/
-ENV/
-env/
-.uv/
-
-# IDE
+# --- IDE & OS ---
 .vscode/
 .idea/
+.DS_Store
+Thumbs.db
+desktop.ini
 *.swp
 *.swo
 *~
 
-# OS
-.DS_Store
-Thumbs.db
-desktop.ini
-
-# Environment
-.env
-.env.local
-.env.*.local
-
-# Logs
-*.log
-logs/
-
-# Cache
-.cache/
-*.cache
-.ruff_cache/
-
-# Modal
-.modal/
-
-# Model cache
+# --- Project Specific ---
+# Models & Weights
 models/
 *.pt
 *.bin
 *.safetensors
 
-# Audio files (remove if you want to track them)
+# Data & Logs
+*.log
+logs/
+debug_audio/
 *.wav
 *.mp3
 *.m4a
 *.ogg
-debug_audio/
 
-# Node (if using any JS tooling)
-node_modules/
+# Config & Secrets
+.env
+.env.local
+.env.*.local
 
-# HuggingFace cache
+# Caches
+.cache/
+.ruff_cache/
 .huggingface/
-
-# Temporary files
-*.tmp
-
-# Agent/AI tools
-.agent/
-
-# UV lock file
-uv.lock
+.pytest_cache/
+.coverage
+htmlcov/

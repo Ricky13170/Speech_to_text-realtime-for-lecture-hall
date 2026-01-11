@@ -1,281 +1,282 @@
-/**
- * ASR Frontend - Main Entry Point
- * Vietnamese Speech Recognition with Downsampling
- */
-
-import { AudioManager } from './audio-mgr.js';
-import { SocketManager } from './socket-mgr.js';
-import { UIManager } from './ui-mgr.js';
+import { AudioManager } from './audio.js';
+import { SocketManager } from './socket.js';
+import { UIManager } from './ui.js';
+import { exportSRT, exportVTT, exportTXT, exportJSON } from './export.js';
 
 class ASRApp {
     constructor() {
         this.audioMgr = new AudioManager();
         this.socketMgr = new SocketManager();
         this.uiMgr = new UIManager();
-
         this.isRecording = false;
-        this.isConnecting = false;  // Track connection state
-
-        // Cache để lưu transcript tạm thời -> Save vào localStorage khi stop
-        this.currentSessionTranscript = [];
-        this.currentSessionId = null;
+        this.isConnecting = false;
+        this.serverReady = false;
+        this.transcripts = {};
+        this.sessionId = null;
     }
 
-    /**
-     * Initialize application
-     */
     async init() {
-        console.log('✅ ASR Frontend initialized');
-
-        // Setup callbacks
         this.setupAudioCallbacks();
         this.setupSocketCallbacks();
         this.setupUIHandlers();
-
-        // Restore context if needed
-        // this.restoreSettings();
-
-        console.log('✅ All callbacks registered');
+        this.setupExportHandlers();
+        this.uiMgr.updateRecordButton(false);
+        await this.loadMicrophones();
+        await this.checkServerStatus();
     }
 
-    /**
-     * Setup audio manager callbacks
-     */
+    async loadMicrophones() {
+        try {
+            const mics = await this.audioMgr.getAvailableMicrophones();
+            const micList = document.getElementById('micList');
+            if (micList && mics.length > 0) {
+                micList.innerHTML = mics.map((mic, i) => `
+                    <div class="dropdown-item" data-source="microphone" data-device="${mic.deviceId}">
+                        🎤 ${mic.label}
+                    </div>
+                `).join('');
+            }
+        } catch (e) {
+            console.log('[Mics] Could not enumerate devices');
+        }
+    }
+
+    async checkServerStatus() {
+        try {
+            this.uiMgr.showNotification('Connecting...');
+            const res = await fetch('/api/status');
+            if (res.ok) {
+                const data = await res.json();
+                this.serverReady = true;
+                this.uiMgr.showNotification(`Ready: ${data.model || 'Whisper'}`);
+            }
+        } catch (e) {
+            this.uiMgr.showNotification('Server loading...');
+        }
+    }
+
     setupAudioCallbacks() {
-        // When audio data is ready, send via WebSocket
-        this.audioMgr.onAudioData = (base64Audio) => {
-            // Chỉ gửi khi đang recording thực sự
-            if (this.isRecording) {
-                this.socketMgr.send('audio', { audio: base64Audio });
+        this.audioMgr.onAudioData = (b64) => {
+            if (this.isRecording && this.socketMgr.isConnected()) {
+                this.socketMgr.send('audio', { audio: b64 });
             }
         };
-
-        // Update UI meter
         this.audioMgr.onLevelUpdate = (rms) => {
-            this.uiMgr.updateAudioMeter(rms);
+            if (this.isRecording) this.uiMgr.updateAudioMeter(rms);
         };
     }
 
-    /**
-     * Setup WebSocket callbacks
-     */
     setupSocketCallbacks() {
-        // Handle incoming messages
         this.socketMgr.onMessage = (data) => {
-            // console.log('[App] Message:', data.type); // Comment bớt cho đỡ spam
-
             if (data.type === 'transcript') {
-                // 1. Update UI
                 this.uiMgr.addTranscriptSegment(data);
 
-                // 2. Update Cache (chỉ lưu những đoạn có nội dung)
-                if (data.source || data.target) {
-                    this.updateTranscriptCache(data);
+                if (data.is_final && (data.source || data.target)) {
+                    const id = data.segment_id || Object.keys(this.transcripts).length + 1;
+                    if (!this.transcripts[id]) this.transcripts[id] = { vi: '', en: '' };
+                    if (data.source) this.transcripts[id].vi = data.source;
+                    if (data.target) this.transcripts[id].en = data.target;
                 }
-
-            } else if (data.type === 'status' && data.status === 'error') {
-                console.error('[App] Server error:', data.message);
-                this.uiMgr.showNotification('Server error: ' + data.message);
+            } else if (data.type === 'status') {
+                if (data.status === 'started') {
+                    this.uiMgr.showNotification('Recording...');
+                } else if (data.status === 'stopped') {
+                    this.uiMgr.showNotification('Stopped');
+                }
             }
         };
 
         this.socketMgr.onConnected = () => {
-            console.log('✅ [App] WebSocket connected');
             this.isConnecting = false;
-            this.uiMgr.showNotification('Connected to server');
+            this.serverReady = true;
         };
 
         this.socketMgr.onDisconnected = () => {
-            console.log('⚠️ [App] WebSocket disconnected');
             if (this.isRecording) {
-                this.uiMgr.showNotification('Connection lost. Stopping...');
+                this.uiMgr.showNotification('Disconnected');
                 this.stopRecording();
             }
         };
 
-        this.socketMgr.onError = (err) => {
-            console.error('❌ [App] WebSocket error:', err);
+        this.socketMgr.onError = () => {
             this.isConnecting = false;
+            this.uiMgr.showNotification('Connection error');
         };
     }
 
-    /**
-     * Setup UI event handlers
-     */
     setupUIHandlers() {
-        // Record button
-        this.uiMgr.elements.recordBtn.onclick = () => {
-            if (this.isRecording) {
-                this.stopRecording();
-            } else {
-                this.startRecording();
-            }
-        };
+        if (this.uiMgr.el.recordBtn) {
+            this.uiMgr.el.recordBtn.onclick = () => {
+                if (this.isRecording) this.stopRecording();
+                else this.startRecording();
+            };
+        }
 
-        // Context Save Handler (Nối UI với Socket)
         this.uiMgr.onContextSave = (data) => {
             if (this.socketMgr.isConnected()) {
                 this.socketMgr.send('context', data);
-            } else {
-                // Nếu chưa connect thì connect trước rồi gửi (hoặc lưu tạm)
-                console.warn('Socket not connected, context will be sent on start');
-                // TODO: Save to temp storage
+                this.uiMgr.showNotification('Context saved');
             }
         };
-    }
 
-    /**
-     * Update transcript cache for saving later
-     */
-    updateTranscriptCache(data) {
-        // Tìm xem segment này đã có trong cache chưa
-        const index = this.currentSessionTranscript.findIndex(t => t.segment_id === data.segment_id);
+        // Microphone selection
+        const audioDropdown = document.getElementById('audioDropdown');
+        if (audioDropdown) {
+            audioDropdown.addEventListener('click', (e) => {
+                const item = e.target.closest('[data-source]');
+                if (!item) return;
 
-        const entry = {
-            segment_id: data.segment_id,
-            timestamp: data.timestamp,
-            vi: data.source,
-            en: data.target,
-            is_final: data.is_final
-        };
+                const source = item.dataset.source;
+                const deviceId = item.dataset.device;
 
-        if (index !== -1) {
-            this.currentSessionTranscript[index] = entry;
-        } else {
-            this.currentSessionTranscript.push(entry);
+                if (source === 'microphone' && deviceId) {
+                    this.audioMgr.setMicrophone(deviceId);
+                    this.uiMgr.setAudioSource('microphone');
+                    const label = item.textContent.trim();
+                    document.getElementById('audioSourceText').textContent = label.substring(0, 20);
+                } else if (source === 'computer') {
+                    this.uiMgr.setAudioSource('computer');
+                }
+
+                audioDropdown.classList.remove('active');
+            });
         }
     }
 
-    /**
-     * Start recording
-     */
+    setupExportHandlers() {
+        const exportBtn = document.getElementById('exportBtn');
+        const exportDropdown = document.getElementById('exportDropdown');
+
+        if (exportBtn) {
+            exportBtn.onclick = (e) => {
+                e.stopPropagation();
+                exportDropdown?.classList.toggle('active');
+            };
+        }
+
+        if (exportDropdown) {
+            exportDropdown.querySelectorAll('[data-export]').forEach(item => {
+                item.onclick = () => {
+                    const format = item.dataset.export;
+                    const segments = Object.values(this.transcripts).filter(t => t.vi || t.en);
+
+                    if (segments.length === 0) {
+                        this.uiMgr.showNotification('No transcripts');
+                        return;
+                    }
+
+                    switch (format) {
+                        case 'srt': exportSRT(segments); break;
+                        case 'vtt': exportVTT(segments); break;
+                        case 'txt': exportTXT(segments); break;
+                        case 'json': exportJSON(segments); break;
+                    }
+
+                    this.uiMgr.showNotification(`Exported ${format.toUpperCase()}`);
+                    exportDropdown.classList.remove('active');
+                };
+            });
+        }
+
+        document.addEventListener('click', () => {
+            exportDropdown?.classList.remove('active');
+        });
+    }
+
     async startRecording() {
         if (this.isConnecting) return;
+        if (!this.serverReady) {
+            this.uiMgr.showNotification('Server loading...');
+            await this.checkServerStatus();
+            if (!this.serverReady) return;
+        }
+
         this.isConnecting = true;
+        this.uiMgr.showNotification('Connecting...');
 
         try {
-            // 1. Connect WebSocket if needed
             if (!this.socketMgr.isConnected()) {
-                this.uiMgr.updateRecordButton(true); // Fake active state indicating loading
                 await this.socketMgr.connect();
             }
 
-            // 2. Get Audio Source & Permission
             const source = this.uiMgr.getAudioSource();
             await this.audioMgr.startRecording(source);
 
-            // 3. Prepare Session Data
             this.uiMgr.clearTranscripts();
-            this.currentSessionTranscript = [];
-            this.currentSessionId = Date.now();
+            this.transcripts = {};
+            this.sessionId = Date.now();
 
-            // 4. Send Start Signal
-            this.socketMgr.send('start');
+            this.socketMgr.send('start', {
+                srcLang: null,
+                tgtLang: 'en',
+                translate: true
+            });
 
-            // 5. Update UI
             this.isRecording = true;
             this.isConnecting = false;
             this.uiMgr.startTimer();
             this.uiMgr.updateRecordButton(true);
 
-            console.log('✅ Recording started');
-
         } catch (err) {
-            console.error('Start failed:', err);
             this.isConnecting = false;
             this.isRecording = false;
             this.uiMgr.updateRecordButton(false);
-
-            let msg = 'Could not start recording.';
-            if (err.name === 'NotAllowedError') msg = 'Microphone permission denied.';
-            if (err.name === 'NotFoundError') msg = 'Microphone not found.';
-
-            alert(msg);
+            this.uiMgr.resetAudioMeter();
+            this.uiMgr.showNotification(err.message || 'Could not start');
         }
     }
 
-    /**
-     * Stop recording
-     */
     async stopRecording() {
-        console.log('⏹️ Stopping...');
-
-        // 1. Send stop signal
         if (this.socketMgr.isConnected()) {
             this.socketMgr.send('stop');
         }
 
-        // 2. Stop audio
         this.audioMgr.stopRecording();
 
-        // 3. Update UI
         this.isRecording = false;
         this.isConnecting = false;
         this.uiMgr.stopTimer();
         this.uiMgr.resetAudioMeter();
         this.uiMgr.updateRecordButton(false);
 
-        // 4. Save Recording to LocalStorage
-        this.saveRecordingToStorage();
+        await new Promise(r => setTimeout(r, 1500));
+        this.saveRecording();
     }
 
-    /**
-     * Save current session to LocalStorage for History Page
-     */
-    saveRecordingToStorage() {
-        console.log('[Save] Attempting to save. Cache length:', this.currentSessionTranscript.length);
-
-        if (this.currentSessionTranscript.length === 0) {
-            console.log('[Save] No transcripts to save');
-            return;
-        }
-
-        // Filter empty segments
-        const validTranscripts = this.currentSessionTranscript.filter(t => t.vi || t.en);
-        console.log('[Save] Valid transcripts:', validTranscripts.length);
-
-        if (validTranscripts.length === 0) {
-            console.log('[Save] All transcripts were empty');
-            return;
-        }
+    saveRecording() {
+        const segments = Object.values(this.transcripts).filter(t => t.vi || t.en);
+        if (segments.length === 0) return;
 
         try {
             const recordings = JSON.parse(localStorage.getItem('recordings') || '[]');
-
             const now = new Date();
-            const dateStr = now.toLocaleDateString('en-CA').replace(/-/g, '.'); // YYYY.MM.DD
-            const timeStr = now.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
 
-            const newRecording = {
-                id: this.currentSessionId,
-                date: dateStr,
-                time: timeStr,
-                duration: this.uiMgr.elements.timer.textContent,
-                transcript: validTranscripts
+            const rec = {
+                id: this.sessionId,
+                date: now.toLocaleDateString('en-CA').replace(/-/g, '.'),
+                time: now.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }),
+                duration: this.uiMgr.el.timer?.textContent || '00:00',
+                transcript: segments.map(t => ({
+                    vi: t.vi || '',
+                    en: t.en || '',
+                    source: t.vi || '',
+                    target: t.en || ''
+                }))
             };
 
-            // Add to beginning
-            recordings.unshift(newRecording);
-
-            // Limit history to 20 items
-            if (recordings.length > 20) recordings.pop();
+            recordings.unshift(rec);
+            if (recordings.length > 50) recordings.pop();
 
             localStorage.setItem('recordings', JSON.stringify(recordings));
-            console.log('✅ Recording saved to history:', newRecording);
-
-            // Notify user and refresh sidebar
-            this.uiMgr.showNotification(`Recording saved (${validTranscripts.length} segments)`);
+            this.uiMgr.showNotification(`Saved ${segments.length} segments`);
             this.uiMgr.loadRecordingsSidebar();
-
         } catch (e) {
-            console.error('Failed to save recording:', e);
+            console.error('[Save] Error:', e);
         }
     }
 }
 
-// Initialize app when DOM is ready
 window.addEventListener('DOMContentLoaded', () => {
-    console.log('🚀 Initializing ASR App...');
     const app = new ASRApp();
     app.init();
 });
