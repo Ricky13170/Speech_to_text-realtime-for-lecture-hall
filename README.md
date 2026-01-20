@@ -1,90 +1,144 @@
-# Real-time Vietnamese-English Speech Translation
+# 🎤 Real-time Vietnamese-English Speech Translation
 
-Translate Vietnamese speech to English in real-time for lecture halls. Uses Whisper Large V3 for E2E transcription and translation.
+Hệ thống dịch tiếng nói Việt-Anh thời gian thực, sử dụng cho giảng đường.
 
+## 🚀 Quick Start
 
-## Requirements
+```bash
+# 1. Clone và cài đặt
+git clone https://github.com/Senju14/Speech_to_text-realtime-for-lecture-hall.git
+cd Speech_to_text-realtime-for-lecture-hall
 
-- Windows 10/11
-- Python 3.11+
-- Modal account (free tier available)
+# 2. Setup Modal CLI
+pip install modal
+modal token new
 
-
-## Setup with venv (Recommended)
-
-```cmd
-# Create virtual environment
-python -m venv venv
-
-# Activate venv
-.\venv\Scripts\activate
-
-# Install dependencies
-pip install uv
-uv pip install -r requirements.txt
-uv sync
-
-# Login to Modal 
-modal setup
-
-# Deploy to Modal
-modal deploy server.py
-python client.py
+# 3. Deploy
+modal deploy main.py
 ```
 
+Truy cập URL được in ra sau khi deploy.
 
-## Running the System
+## 📐 Kiến trúc hệ thống
 
-After deploying, you get a URL like:
 ```
-https://YOUR_USERNAME--asr-thesis-asr-web.modal.run
+┌─────────────────────────────────────────────────────────────────┐
+│                         FRONTEND (Browser)                       │
+├─────────────────────────────────────────────────────────────────┤
+│  🎤 Microphone ──► AudioWorklet ──► Resample 16kHz ──► Base64   │
+│                                                          │       │
+│  📊 UI Manager ◄── WebSocket ◄───────────────────────────┘       │
+│     └── Transcript Display (Vi + En)                             │
+└─────────────────────────────────────────────────────────────────┘
+                              │ WebSocket
+                              ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                      BACKEND (Modal GPU)                         │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                   │
+│  Audio ──► VAD (Energy) ──► Buffer ──► Faster-Whisper ──► Text  │
+│                                              │                    │
+│                              ┌───────────────┘                    │
+│                              ▼                                    │
+│                    Hallucination Filter                           │
+│                    (Pattern + WPS + Confidence)                   │
+│                              │                                    │
+│                              ▼                                    │
+│                    NLLB Translator ──► English Text               │
+│                              │                                    │
+│                              ▼                                    │
+│                    WebSocket Response                             │
+│                                                                   │
+└─────────────────────────────────────────────────────────────────┘
 ```
 
-Open this URL in your browser to use the app.
+## 🛠️ Tech Stack
 
+| Component | Technology | Purpose |
+|-----------|------------|---------|
+| ASR | Faster-Whisper (large-v3) | Vietnamese speech recognition |
+| Translation | NLLB 3.3B | Vi→En neural machine translation |
+| VAD | Energy-based RMS | Voice activity detection |
+| Streaming | WebSocket | Real-time bidirectional |
+| Backend | Modal + FastAPI | Serverless GPU compute |
+| Frontend | Vanilla JS + CSS | Lightweight UI |
 
-## Development
+## 📁 Cấu trúc dự án
 
-To make changes and redeploy:
-
-```cmd
-# Activate venv
-.\venv\Scripts\activate
-
-# Edit code, then deploy
-modal deploy server.py
-python client.py
+```
+├── main.py                 # Modal entry point
+├── backend/
+│   ├── asr.py             # Faster-Whisper ASR
+│   ├── translation.py     # NLLB translator
+│   ├── handler.py         # WebSocket session handler
+│   ├── config.py          # Configuration
+│   └── vad.py             # Voice Activity Detection
+└── frontend/
+    ├── index.html         # Main UI
+    ├── style.css          # Styling
+    └── js/
+        ├── main.js        # App controller
+        ├── audio.js       # Audio capture
+        ├── socket.js      # WebSocket client
+        └── ui.js          # UI manager
 ```
 
+## ⚙️ Cấu hình
 
-## Usage
+Chỉnh sửa `backend/config.py`:
 
-1. Select audio source: Microphone or Computer Audio
-2. Click Record button
-3. Speak in Vietnamese
-4. View real-time transcription and translation
-5. Click Stop when done
+```python
+WHISPER_MODEL = "large-v3"      # Model size
+WHISPER_LANGUAGE = "vi"         # Force Vietnamese
+MODAL_GPU = "A100"              # GPU type
+VAD_THRESHOLD = 0.01            # Voice detection sensitivity
+MAX_BUFFER_DURATION = 8.0       # Max audio buffer (seconds)
+```
 
+## 🔬 Phương pháp chính (cho Paper)
 
-## Troubleshooting
+1. **Streaming ASR Pipeline**
+   - Chunk-based processing với VAD
+   - Faster-Whisper cho low-latency
 
-No transcription output:
-- Check microphone permission in browser
-- Open F12 Console to see errors
-- Speak louder and clearer
+2. **Hallucination Detection**
+   - Pattern matching (YouTube artifacts)
+   - Words-per-second validation
+   - Confidence thresholding
 
-WebSocket connection error:
-- Check Modal app status: modal app list
-- Redeploy: modal deploy server.py
+3. **Cascade Translation**
+   - NLLB 3.3B với safetensors
+   - Async translation pipeline
 
-Cold start slow:
-- First request takes 30-60s to load models
-- Subsequent requests are fast
+4. **Real-time WebSocket Protocol**
+   - Binary audio streaming
+   - JSON transcript responses
 
+## 📊 Metrics
 
-## Technical Specs
+- **Latency**: ~0.5-1s (partial), ~2-3s (final + translation)
+- **GPU**: A100 40GB
+- **Model load**: ~25s cold start
 
-- ASR/Translation Model: openai/whisper-large-v3
-- GPU: NVIDIA A10G (Modal Cloud)
-- Sample Rate: 16kHz
-- Window: 2s with 1s overlap
+## 📈 Evaluation Results
+
+Streaming ASR benchmark on 100 samples per dataset:
+
+| Model | Dataset | GPU | WER | CER | TTFT | RTF |
+|-------|---------|-----|-----|-----|------|-----|
+| Whisper | vlsp2020 | A100 | 26.94% | 22.19% | 4ms | 0.070x |
+| Whisper | earnings22 | A100 | 25.44% | 19.65% | 1ms | 0.060x |
+| PhoWhisper | vlsp2020 | A100 | **16.16%** | **14.82%** | 4ms | 0.081x |
+| PhoWhisper | earnings22 | A100 | 29.59% | 21.80% | 2ms | 0.088x |
+
+**Key findings:**
+- PhoWhisper achieves **16.16% WER** on Vietnamese (VLSP2020) - 40% better than Whisper
+- Whisper performs better on English (earnings22)
+- RTF ~0.06-0.09x = **~11-17x faster than real-time**
+
+See `test/README.md` for running evaluations.
+
+## 📝 License
+
+MIT License
+
