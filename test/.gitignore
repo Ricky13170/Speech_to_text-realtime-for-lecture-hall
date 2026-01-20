@@ -1,0 +1,4 @@
+# Ignore evaluation results (generated files)
+results/
+tables/
+__pycache__/
