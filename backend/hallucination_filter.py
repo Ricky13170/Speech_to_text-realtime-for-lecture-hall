@@ -26,6 +26,13 @@ class HallucinationFilter:
             "subscribe", "đăng ký kênh", "like and subscribe",
             "ghiền mì gõ", "la la school",
             
+            # Vietnamese hallucination patterns (uncomment to activate)
+            # "hẹn gặp lại các bạn",
+            # "video tiếp theo",
+            # "video kế tiếp",
+            # "cảm ơn các bạn đã theo dõi",
+            # "xin chào các bạn",
+            
             # Whisper timestamp artifacts
             "[", "]", ">>", "<<",
             
@@ -55,7 +62,7 @@ class HallucinationFilter:
         if len(text) < 2:
             return True, "too_short"
         
-        if audio_rms < 0.01 and len(words) > 8:
+        if audio_rms < 0.02 and len(words) > 6:
             logger.debug(f"Audio-text mismatch: RMS={audio_rms:.4f}, words={len(words)}")
             return True, "quiet_audio_long_text"
         
