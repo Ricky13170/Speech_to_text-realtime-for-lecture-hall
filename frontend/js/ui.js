@@ -24,7 +24,12 @@ class UIManager {
             saveContextBtn: document.getElementById('saveContextBtn'),
             notification: document.getElementById('notification'),
             clearModal: document.getElementById('clearModal'),
-            deleteRecordingModal: document.getElementById('deleteRecordingModal')
+            deleteRecordingModal: document.getElementById('deleteRecordingModal'),
+            lectureTopic: document.getElementById('lectureTopic'),
+            aiGenerateBtn: document.getElementById('aiGenerateBtn'),
+            summarizeBtn: document.getElementById('summarizeBtn'),
+            summaryModal: document.getElementById('summaryModal'),
+            summaryContent: document.getElementById('summaryContent'),
         };
 
         this.timerInterval = null;
@@ -33,6 +38,7 @@ class UIManager {
         this.fontSizeLevel = 0;
         this.pendingDeleteId = null;
         this.onContextSave = null;
+        this.onSummarize = null;
         this.displayedSegments = new Map();
 
         this.setupEventHandlers();
@@ -88,6 +94,42 @@ class UIManager {
                 };
             }
         });
+
+        // AI Generate keywords from topic
+        if (this.el.aiGenerateBtn) this.el.aiGenerateBtn.onclick = () => this.aiGenerateKeywords();
+
+        // Summarize button
+        if (this.el.summarizeBtn) {
+            this.el.summarizeBtn.onclick = () => {
+                if (this.onSummarize) this.onSummarize();
+            };
+        }
+
+        // Summary modal controls
+        const closeSummaryBtn = document.getElementById('closeSummaryBtn');
+        const closeSummaryX = document.getElementById('closeSummaryModal');
+        const copySummaryBtn = document.getElementById('copySummaryBtn');
+        const closeSummary = () => this.el.summaryModal?.classList.remove('active');
+        if (closeSummaryBtn) closeSummaryBtn.onclick = closeSummary;
+        if (closeSummaryX) closeSummaryX.onclick = closeSummary;
+        if (copySummaryBtn) {
+            copySummaryBtn.onclick = async () => {
+                const text = this.el.summaryContent?.innerText;
+                if (text) {
+                    try {
+                        await navigator.clipboard.writeText(text);
+                        this.showNotification('Summary copied!');
+                    } catch (e) {
+                        this.showNotification('Copy failed');
+                    }
+                }
+            };
+        }
+        if (this.el.summaryModal) {
+            this.el.summaryModal.onclick = (e) => {
+                if (e.target === this.el.summaryModal) closeSummary();
+            };
+        }
 
         if (this.el.sidebarToggle) {
             this.el.sidebarToggle.onclick = () => this.toggleSidebar();
@@ -189,12 +231,12 @@ class UIManager {
 
         if (source && viEl) {
             if (is_final) {
-                viEl.innerHTML = source; 
+                viEl.innerHTML = source;
             } else {
                 viEl.innerHTML = `<span style="opacity: 0.6; font-style: italic;">${source}</span>`;
             }
         }
-    
+
         if (target && enEl) enEl.textContent = target;
 
         if (is_final) {
@@ -351,14 +393,79 @@ class UIManager {
     clearContext() {
         if (this.el.keywords) this.el.keywords.value = '';
         if (this.el.context) this.el.context.value = '';
+        if (this.el.lectureTopic) this.el.lectureTopic.value = '';
     }
 
     saveContext() {
         const keywords = (this.el.keywords?.value || '').split(',').map(k => k.trim()).filter(k => k);
         const context = (this.el.context?.value || '').trim();
-        if (this.onContextSave) this.onContextSave({ keywords, context });
+        const topic = this.getLectureTopic();
+        if (this.onContextSave) this.onContextSave({ keywords, context, topic });
         this.hideContextModal();
         this.showNotification('Saved');
+    }
+
+    getLectureTopic() {
+        return (this.el.lectureTopic?.value || '').trim();
+    }
+
+    async aiGenerateKeywords() {
+        const topic = this.getLectureTopic();
+        if (!topic) {
+            this.showNotification('Enter a topic first');
+            return;
+        }
+
+        const btn = this.el.aiGenerateBtn;
+        const original = btn?.innerHTML;
+        if (btn) {
+            btn.disabled = true;
+            btn.innerHTML = '⏳ Generating...';
+        }
+
+        try {
+            const resp = await fetch('/api/expand-keywords', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ topic })
+            });
+
+            if (resp.ok) {
+                const data = await resp.json();
+                if (data.keywords && this.el.keywords) {
+                    this.el.keywords.value = data.keywords;
+                    this.showNotification('Keywords generated!');
+                }
+            } else {
+                this.showNotification('Could not generate keywords');
+            }
+        } catch (e) {
+            this.showNotification('Generation failed');
+        } finally {
+            if (btn) {
+                btn.disabled = false;
+                btn.innerHTML = original;
+            }
+        }
+    }
+
+    showSummary(data) {
+        const { summary, topic } = data;
+        if (!summary || !this.el.summaryModal) return;
+
+        let html = summary
+            .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+            .replace(/^### (.+)$/gm, '<h4>$1</h4>')
+            .replace(/^## (.+)$/gm, '<h3>$1</h3>')
+            .replace(/^# (.+)$/gm, '<h2>$1</h2>')
+            .replace(/^- (.+)$/gm, '<li>$1</li>')
+            .replace(/\n/g, '<br>');
+
+        if (this.el.summaryContent) {
+            this.el.summaryContent.innerHTML = html;
+        }
+        this.el.summaryModal.classList.add('active');
+        this.showNotification('Summary ready!');
     }
 }
 
