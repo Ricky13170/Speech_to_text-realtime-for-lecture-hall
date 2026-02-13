@@ -3,7 +3,7 @@ import pathlib
 
 sys.path.append(str(pathlib.Path(__file__).parent))
 
-from modal import App, Image, asgi_app, Volume, enter
+from modal import App, Image, asgi_app, Volume, enter, Secret
 from backend.config import (
     MODAL_APP_NAME, 
     MODAL_GPU, 
@@ -30,8 +30,8 @@ image = (
         "accelerate>=0.25.0",
         "sentencepiece>=0.1.99",
     )
-    # Whisper (faster-whisper for CTranslate2 backend)
-    .pip_install("faster-whisper>=1.0.0", "ctranslate2>=4.0.0")
+    # WhisperX (includes faster-whisper + pyannote VAD)
+    .pip_install("whisperx")
     # Web server
     .pip_install(
         "fastapi>=0.104.0",
@@ -47,6 +47,10 @@ image = (
     )
     # Utilities
     .pip_install("safetensors>=0.4.0", "protobuf>=3.20.0")
+    # Post-processing (BARTpho syllable correction)
+    .pip_install("peft>=0.7.0")
+    # LLM (Groq API for context priming + summary)
+    .pip_install("groq>=0.4.0")
     # Add project files
     .add_local_dir("backend", remote_path="/root/backend")
     .add_local_dir("frontend", remote_path="/root/frontend")
@@ -62,6 +66,7 @@ cache = Volume.from_name("asr-model-cache", create_if_missing=True)
     scaledown_window=MODAL_CONTAINER_IDLE_TIMEOUT,
     image=image,
     volumes={"/cache": cache},
+    secrets=[Secret.from_name("groq-api-key")],
 )
 class ASR:
     @enter()
@@ -78,7 +83,11 @@ class ASR:
         sys.path.append("/root")
         os.environ["HF_HOME"] = "/cache/huggingface"
         
-        print("[Container] Initializing segment-based ASR system...")
+        # Apply PyTorch patches for WhisperX/pyannote compatibility
+        from backend.torch_patch import apply_torch_load_patch
+        apply_torch_load_patch()
+        
+        print("[Container] Initializing segment-based ASR system (WhisperX)...")
         start = time.time()
         
         from backend.handler import ASRService
@@ -97,7 +106,7 @@ class ASR:
         ASGI application factory.
         Creates FastAPI app with WebSocket support for real-time ASR.
         """
-        from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+        from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request
         from fastapi.middleware.cors import CORSMiddleware
         from fastapi.staticfiles import StaticFiles
         from fastapi.responses import JSONResponse
@@ -150,7 +159,7 @@ class ASR:
             """Health check and system info"""
             return JSONResponse({
                 "status": "online",
-                "version": "6.0",
+                "version": "6.1",
                 "architecture": "segment-based",
                 "model": WHISPER_MODEL,
                 "gpu": MODAL_GPU,
@@ -159,9 +168,30 @@ class ASR:
                     "adaptive_vad",
                     "segment_buffering",
                     "local_agreement",
-                    "hallucination_filter"
+                    "hallucination_filter",
+                    "bartpho_correction",
+                    "groq_llm"
                 ]
             })
+
+        @web_app.post("/api/expand-keywords")
+        async def expand_keywords(request: Request):
+            """Expand lecture topic into keywords using Groq LLM"""
+            try:
+                body = await request.json()
+                topic = body.get("topic", "").strip()
+                
+                if not topic:
+                    return JSONResponse({"error": "No topic provided"}, status_code=400)
+                
+                if not self.service.groq or not self.service.groq.is_available:
+                    return JSONResponse({"error": "Groq service not available"}, status_code=503)
+                
+                keywords = await self.service.groq.expand_keywords(topic)
+                return JSONResponse({"keywords": keywords, "topic": topic})
+                
+            except Exception as e:
+                return JSONResponse({"error": str(e)}, status_code=500)
 
         # ============================
         # WebSocket Endpoint
