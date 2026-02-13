@@ -13,6 +13,7 @@ class ASRApp {
         this.serverReady = false;
         this.transcripts = {};
         this.sessionId = null;
+        this.lectureTopic = '';
     }
 
     async init() {
@@ -77,12 +78,16 @@ class ASRApp {
                     if (data.source) this.transcripts[id].vi = data.source;
                     if (data.target) this.transcripts[id].en = data.target;
                 }
+            } else if (data.type === 'summary') {
+                this.uiMgr.showSummary(data);
             } else if (data.type === 'status') {
                 if (data.status === 'started') {
                     this.uiMgr.showNotification('Recording...');
                 } else if (data.status === 'stopped') {
                     this.uiMgr.showNotification('Stopped');
                 }
+            } else if (data.type === 'log') {
+                this.uiMgr.showNotification(data.message || '');
             }
         };
 
@@ -113,9 +118,19 @@ class ASRApp {
         }
 
         this.uiMgr.onContextSave = (data) => {
+            this.lectureTopic = data.topic || '';
             if (this.socketMgr.isConnected()) {
                 this.socketMgr.send('context', data);
                 this.uiMgr.showNotification('Context saved');
+            }
+        };
+
+        this.uiMgr.onSummarize = () => {
+            if (this.socketMgr.isConnected()) {
+                this.socketMgr.send('summarize');
+                this.uiMgr.showNotification('Generating summary...');
+            } else {
+                this.uiMgr.showNotification('Not connected');
             }
         };
 
@@ -206,10 +221,13 @@ class ASRApp {
             this.transcripts = {};
             this.sessionId = Date.now();
 
+            const topic = this.lectureTopic || this.uiMgr.getLectureTopic() || '';
+
             this.socketMgr.send('start', {
                 srcLang: null,
                 tgtLang: 'en',
-                translate: true
+                translate: true,
+                topic: topic
             });
 
             this.isRecording = true;
