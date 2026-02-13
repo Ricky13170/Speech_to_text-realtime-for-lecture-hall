@@ -89,6 +89,15 @@
                     d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42" />
                 </svg>
               </button>
+              <button class="btn-icon" id="summarizeBtn" title="Summarize">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                  <polyline points="14 2 14 8 20 8"/>
+                  <line x1="16" y1="13" x2="8" y2="13"/>
+                  <line x1="16" y1="17" x2="8" y2="17"/>
+                  <polyline points="10 9 9 9 8 9"/>
+                </svg>
+              </button>
               <div class="dropdown">
                 <button class="btn-icon" id="exportBtn" title="Export">
                   <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
@@ -144,8 +153,19 @@
       </div>
       <div class="modal-body">
         <div class="form-group">
+          <label>Lecture Topic</label>
+          <div class="input-icon-wrapper">
+            <span class="input-icon">✨</span>
+            <input type="text" id="lectureTopic" placeholder="Enter lecture topic to boost accuracy..." maxlength="200">
+          </div>
+          <small class="form-hint">AI will expand this into keywords to improve recognition</small>
+        </div>
+        <div class="form-group">
           <label>Keywords</label>
-          <input type="text" id="keywords" placeholder="AI, machine learning, neural network...">
+          <div class="input-with-btn">
+            <input type="text" id="keywords" placeholder="AI, machine learning, neural network...">
+            <button class="btn btn-sm btn-accent" id="aiGenerateBtn" title="AI Generate from topic">⚡ Generate</button>
+          </div>
         </div>
         <div class="form-group">
           <label>Context</label>
@@ -189,6 +209,23 @@
       <div class="modal-footer">
         <button class="btn btn-secondary" id="deleteModalCancel">Cancel</button>
         <button class="btn btn-danger" id="deleteModalConfirm">Delete</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Summary modal (Groq auto-summary) -->
+  <div class="modal-overlay" id="summaryModal">
+    <div class="modal modal-lg">
+      <div class="modal-header">
+        <h3>📝 Lecture Summary</h3>
+        <button class="modal-close" id="closeSummaryModal" title="Close">×</button>
+      </div>
+      <div class="modal-body">
+        <div id="summaryContent" class="summary-content"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" id="copySummaryBtn">Copy</button>
+        <button class="btn btn-primary" id="closeSummaryBtn">Close</button>
       </div>
     </div>
   </div>
