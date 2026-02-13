@@ -920,3 +920,102 @@ body {
         border-bottom: 1px solid var(--border);
     }
 }
+
+/* ===========================================
+   Groq LLM: Topic Input + Summary Components
+   =========================================== */
+
+.modal-lg {
+    max-width: 700px;
+}
+
+.input-icon-wrapper {
+    position: relative;
+    display: flex;
+    align-items: center;
+}
+
+.input-icon-wrapper .input-icon {
+    position: absolute;
+    left: 12px;
+    font-size: 1rem;
+    pointer-events: none;
+}
+
+.input-icon-wrapper input {
+    padding-left: 36px !important;
+}
+
+.input-with-btn {
+    display: flex;
+    gap: 0.5rem;
+    align-items: stretch;
+}
+
+.input-with-btn input {
+    flex: 1;
+}
+
+.btn-sm {
+    padding: 0.4rem 0.75rem;
+    font-size: 0.8rem;
+    white-space: nowrap;
+    border-radius: 6px;
+}
+
+.btn-accent {
+    background: linear-gradient(135deg, #f59e0b, #d97706);
+    color: white;
+    border: none;
+    cursor: pointer;
+    transition: all 0.2s;
+    font-family: inherit;
+    font-weight: 500;
+}
+
+.btn-accent:hover:not(:disabled) {
+    background: linear-gradient(135deg, #d97706, #b45309);
+    transform: translateY(-1px);
+}
+
+.btn-accent:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+.form-hint {
+    display: block;
+    margin-top: 0.35rem;
+    font-size: 0.78rem;
+    color: var(--text-muted);
+}
+
+.summary-content {
+    max-height: 50vh;
+    overflow-y: auto;
+    padding: 0.5rem 0;
+    line-height: 1.7;
+    font-size: 0.95rem;
+}
+
+.summary-content h2,
+.summary-content h3,
+.summary-content h4 {
+    margin-top: 1rem;
+    margin-bottom: 0.5rem;
+    font-weight: 600;
+}
+
+.summary-content h2 { font-size: 1.2rem; }
+.summary-content h3 { font-size: 1.1rem; }
+.summary-content h4 { font-size: 1rem; }
+
+.summary-content li {
+    margin-left: 1.5rem;
+    margin-bottom: 0.3rem;
+}
+
+.summary-content strong {
+    font-weight: 600;
+    color: var(--text);
+}
