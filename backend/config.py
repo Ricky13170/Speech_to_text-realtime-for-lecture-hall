@@ -32,7 +32,7 @@ VAD_MAX_NOISE = 0.05
 
 # Segmentation Configuration
 MAX_SEGMENT_SEC = 5.0       
-OVERLAP_SEC = 0.5           
+OVERLAP_SEC = 0.8           
 SILENCE_LIMIT = 0.5         
 MIN_DECODE_SEC = 1.0      
 
@@ -41,3 +41,15 @@ AGREEMENT_N = 2
 
 # Hallucination Filter
 HALLUCINATION_HISTORY_SIZE = 5
+
+# BARTpho Post-processing
+import os
+ENABLE_BARTPHO = True  # Set False to skip BARTpho post-processing
+BARTPHO_ADAPTER = "522H0134-NguyenNhatHuy/bartpho-syllable-correction"
+BARTPHO_DEVICE = "cuda"
+
+# Groq LLM (context priming + auto summary)
+GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
+GROQ_MODEL = "llama-3.1-8b-instant"
+GROQ_TIMEOUT = 10
+AUTO_SUMMARY_MIN_DURATION = 120  
