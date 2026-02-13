@@ -1,49 +1,118 @@
+import os
 import numpy as np
+import torch
+import logging
 from backend.config import SAMPLE_RATE
 
+logger = logging.getLogger(__name__)
+
+
 class VADManager:
-    def __init__(self, base_threshold: float = 0.015, alpha: float = 0.05):
-        self.base_threshold = base_threshold
-        self.alpha = alpha
+    def __init__(self, device: str = "cuda", threshold: float = 0.5):
+        self.device = device
+        self.threshold = threshold
+        self.model = None
+        self._loaded = False
         
-        self.noise_level = 0.005  
+        # Rolling context buffer — Pyannote needs longer context for accuracy
+        # Keep ~2 seconds of audio for the model to work well
+        self._context_samples = SAMPLE_RATE * 2  # 2 seconds
+        self._context_buffer = np.array([], dtype=np.float32)
         
-        # Sanity limits
-        self.min_noise = 0.001  
-        self.max_noise = 0.05  
+        # Stats tracking
+        self._last_prob = 0.0
+    
+    def _find_model_path(self) -> str:
+        """Find the bundled pytorch_model.bin from whisperx package"""
+        import whisperx
+        whisperx_dir = os.path.dirname(os.path.abspath(whisperx.__file__))
+        model_fp = os.path.join(whisperx_dir, "assets", "pytorch_model.bin")
         
-        self._loaded = True
+        if not os.path.exists(model_fp):
+            raise FileNotFoundError(
+                f"Pyannote model not found at {model_fp}. "
+                "Make sure whisperx is installed with its assets."
+            )
+        
+        return model_fp
     
     def load(self):
-        """Compatibility method (no model to load)"""
-        pass
+        """Load Pyannote segmentation model from WhisperX bundled assets"""
+        if self._loaded:
+            return
+        
+        from backend.torch_patch import apply_torch_load_patch, suppress_stdout
+        apply_torch_load_patch()
+        
+        from pyannote.audio import Model
+        
+        model_fp = self._find_model_path()
+        logger.info(f"[VAD] Loading Pyannote model from {model_fp}")
+        
+        with suppress_stdout():
+            self.model = Model.from_pretrained(model_fp)
+            self.model.to(self.device)
+            self.model.eval()
+        
+        self._loaded = True
+        logger.info("[VAD] Pyannote VAD ready (bundled model)")
     
     def is_speech(self, audio: np.ndarray) -> bool:
+        """Check if audio chunk contains speech using Pyannote neural inference.
+        
+        Maintains a 2-second rolling context buffer and runs the segmentation
+        model on it. Uses the last few output frames (corresponding to the new
+        chunk) to determine speech activity.
+        
+        Args:
+            audio: float32 audio chunk at 16kHz (~250ms = 4000 samples)
+            
+        Returns:
+            True if speech detected
+        """
+        if not self._loaded:
+            self.load()
+        
         if len(audio) == 0:
             return False
         
-        rms = np.sqrt(np.mean(audio.astype(np.float64) ** 2))
+        # Build context: append new chunk, keep last 2 seconds
+        self._context_buffer = np.concatenate([self._context_buffer, audio])
+        if len(self._context_buffer) > self._context_samples:
+            self._context_buffer = self._context_buffer[-self._context_samples:]
         
-        current_threshold = self.noise_level + self.base_threshold
-
-        if rms < current_threshold:
-
-            self.noise_level = (1 - self.alpha) * self.noise_level + self.alpha * rms
-
-            self.noise_level = np.clip(self.noise_level, self.min_noise, self.max_noise)
-
-        is_speech = rms > current_threshold
+        # Prepare tensor: (batch=1, channel=1, samples)
+        waveform = torch.from_numpy(self._context_buffer).float()
+        waveform = waveform.unsqueeze(0).unsqueeze(0).to(self.device)
         
-        return is_speech
+        with torch.no_grad():
+            output = self.model(waveform)
+        
+        # output shape: (1, num_frames, num_speakers)
+        # Model outputs logits → apply sigmoid for probabilities
+        probs = torch.sigmoid(output)
+        
+        # Use the last few frames (corresponding to the new chunk)
+        num_frames = probs.shape[1]
+        chunk_ratio = len(audio) / len(self._context_buffer)
+        last_n = max(1, int(num_frames * chunk_ratio))
+        recent_probs = probs[0, -last_n:, :]
+        
+        # Speech = any speaker channel active → max across speakers, mean across frames
+        speech_prob = recent_probs.max(dim=-1).values.mean().item()
+        self._last_prob = speech_prob
+        
+        return speech_prob > self.threshold
     
     def reset(self):
-        """Reset noise floor estimate (call at session start)"""
-        self.noise_level = 0.005
+        """Reset VAD state (call at session start)"""
+        self._context_buffer = np.array([], dtype=np.float32)
+        self._last_prob = 0.0
     
     def get_stats(self) -> dict:
         return {
-            "noise_level": self.noise_level,
-            "noise_dB": 20 * np.log10(self.noise_level + 1e-10),
-            "threshold": self.noise_level + self.base_threshold,
-            "threshold_dB": 20 * np.log10(self.noise_level + self.base_threshold + 1e-10)
+            "speech_probability": self._last_prob,
+            "threshold": self.threshold,
+            "is_speech": self._last_prob > self.threshold,
+            "context_duration_ms": int(len(self._context_buffer) / SAMPLE_RATE * 1000),
         }
