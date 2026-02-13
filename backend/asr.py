@@ -1,6 +1,8 @@
 import numpy as np
 import logging
+from dataclasses import replace as dataclass_replace
 from backend.audio_normalizer import AdaptiveNormalizer
+from backend.torch_patch import apply_torch_load_patch, suppress_stdout
 
 logger = logging.getLogger(__name__)
 
@@ -8,8 +10,6 @@ SAMPLE_RATE = 16000
 
 
 class WhisperASR:
-    """Faster-Whisper ASR using CTranslate2 backend"""
-    
     def __init__(self, model_size="large-v3", language=None, device="cuda", cache_dir=None):
         self.model_size = model_size
         self.language = language
@@ -18,32 +18,48 @@ class WhisperASR:
         self.model = None
         
         self.normalizer = AdaptiveNormalizer(target_dB=-20.0, sample_rate=SAMPLE_RATE)
-        logger.info("[ASR] Adaptive audio normalization enabled")
+        logger.info("[ASR] WhisperX with adaptive audio normalization enabled")
 
     def load_model(self):
         if self.model is not None:
             return
         
-        from faster_whisper import WhisperModel
+        # Apply PyTorch patches for pyannote compatibility
+        apply_torch_load_patch()
         
-        logger.info(f"Loading Faster-Whisper: {self.model_size}")
+        import whisperx
+        
+        logger.info(f"Loading WhisperX: {self.model_size}")
         
         compute_type = "float16" if self.device == "cuda" else "int8"
         
-        self.model = WhisperModel(
-            self.model_size,
-            device=self.device,
-            compute_type=compute_type,
-            download_root=self.cache_dir,
-        )
-        logger.info("Faster-Whisper loaded")
+        with suppress_stdout():
+            self.model = whisperx.load_model(
+                self.model_size,
+                self.device,
+                compute_type=compute_type,
+                language=self.language,
+                asr_options={"without_timestamps": True},
+                # Disable internal Pyannote VAD — already handled at streaming level
+                # (WhisperX requires vad_onset > 0, so use near-zero threshold)
+                vad_options={"vad_onset": 0.01, "vad_offset": 0.01},
+            )
+        
+        logger.info("WhisperX loaded")
 
     def transcribe(self, audio: np.ndarray, prompt: str = None) -> tuple:
+        """Transcribe audio using WhisperX.
+        
+        Args:
+            audio: float32 audio at 16kHz
+            prompt: Context prompt (recent transcript history)
+            
+        Returns:
+            (text, confidence) — same interface as before
+        """
         if self.model is None:
             self.load_model()
         
-        normalized_audio = audio
-
         if len(audio) < 8000:
             return "", 0.0
         
@@ -52,43 +68,49 @@ class WhisperASR:
         if normalized_audio.dtype != np.float32:
             normalized_audio = normalized_audio.astype(np.float32)
         
-        # Transcribe with normalized audio
-        segments, info = self.model.transcribe(
-            normalized_audio,
-            language=self.language if self.language else None,
-            task="transcribe",
-            beam_size=5,
-            best_of=1,
-            temperature=0.0,
-            vad_filter=True,
-            vad_parameters=dict(
-                min_silence_duration_ms=500,
-                speech_pad_ms=200,
-            ),
-            no_speech_threshold=0.6,
-            compression_ratio_threshold=2.4,
-            condition_on_previous_text=False,
-            initial_prompt=prompt,
-            without_timestamps=True,
-        )
+        # Set initial_prompt via model options
+        # (WhisperX uses TranscriptionOptions, NOT a transcribe() kwarg)
+        original_options = None
+        if prompt and hasattr(self.model, 'options'):
+            original_options = self.model.options
+            self.model.options = dataclass_replace(
+                self.model.options, initial_prompt=prompt
+            )
         
-        # Collect segments
+        try:
+            # Transcribe with WhisperX (batch_size=1 for streaming segments)
+            result = self.model.transcribe(
+                normalized_audio,
+                batch_size=1,
+                language=self.language,
+            )
+        finally:
+            # Restore original options (model is shared across sessions)
+            if original_options is not None:
+                self.model.options = original_options
+        
+        # Collect segments and calculate confidence
         text_parts = []
         total_prob = 0.0
         seg_count = 0
         
-        for segment in segments:
-            text_parts.append(segment.text.strip())
-            total_prob += segment.avg_logprob
-            seg_count += 1
+        for segment in result.get("segments", []):
+            text_parts.append(segment.get("text", "").strip())
+            if "avg_logprob" in segment:
+                total_prob += segment["avg_logprob"]
+                seg_count += 1
         
         text = " ".join(text_parts).strip()
         
         # Calculate confidence
-        conf = 0.0
         if seg_count > 0:
             avg_logprob = total_prob / seg_count
             conf = min(1.0, max(0.0, 1.0 + avg_logprob / 2))
+        elif text:
+            # WhisperX may not return avg_logprob — default to reasonable confidence
+            conf = 0.8
+        else:
+            conf = 0.0
         
         return text, conf
 
