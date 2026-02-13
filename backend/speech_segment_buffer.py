@@ -32,6 +32,18 @@ class SpeechSegmentBuffer:
             
             self.last_voice_ts = now_ts
             self.segment.append(audio)
+            
+            # Check max_sec EVEN during continuous speech
+            total_samples = sum(len(chunk) for chunk in self.segment)
+            total_sec = total_samples / self.sr
+            
+            if total_sec >= self.max_sec:
+                chunk = np.concatenate(self.segment)
+                self._update_overlap(chunk)
+                self.segment = []
+                self.in_speech = False  # Reset để segment tiếp theo dùng overlap
+                return 'final', chunk
+            
             return None
         
         if not self.in_speech:
