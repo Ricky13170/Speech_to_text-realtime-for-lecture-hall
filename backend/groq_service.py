@@ -1,0 +1,136 @@
+import os
+import logging
+import asyncio
+from typing import Optional
+
+from backend.config import GROQ_API_KEY, GROQ_MODEL, GROQ_TIMEOUT
+
+logger = logging.getLogger(__name__)
+
+
+class GroqService:
+    """Groq API client for LLM features"""
+    
+    def __init__(self, api_key: Optional[str] = None, model: str = GROQ_MODEL):
+        self.api_key = api_key or GROQ_API_KEY
+        self.model = model
+        self.client = None
+        self.is_available = False
+        
+    def init(self):
+        """Initialize Groq client"""
+        if not self.api_key:
+            logger.warning("[Groq] No API key configured - LLM features disabled")
+            return
+        
+        try:
+            from groq import Groq
+            self.client = Groq(api_key=self.api_key)
+            self.is_available = True
+            logger.info(f"[Groq] Initialized with model: {self.model}")
+        except ImportError:
+            logger.warning("[Groq] groq package not installed - LLM features disabled")
+        except Exception as e:
+            logger.error(f"[Groq] Init error: {e}")
+    
+    async def expand_keywords(self, topic: str, language: str = "vi") -> str:
+        """
+        Expand a lecture topic into technical keywords for ASR priming
+        
+        Args:
+            topic: Lecture topic (e.g., "Machine Learning cơ bản")
+            language: Source language
+            
+        Returns:
+            Comma-separated keywords string for WhisperX initial_prompt
+        """
+        if not self.is_available or not topic.strip():
+            return ""
+        
+        lang_name = "Vietnamese" if language == "vi" else "English"
+        
+        prompt = f"""Given this lecture topic: "{topic}"
+
+Generate 15-20 technical keywords and phrases that are likely to appear in a {lang_name} lecture about this topic.
+Include: technical terms, abbreviations, proper nouns, and domain-specific vocabulary.
+For Vietnamese topics, include both Vietnamese terms and their English equivalents.
+
+Return ONLY the keywords as a comma-separated list. No explanations."""
+
+        try:
+            loop = asyncio.get_event_loop()
+            result = await loop.run_in_executor(None, self._chat, prompt)
+            
+            # Clean up: remove quotes, newlines, extra whitespace
+            keywords = result.replace('"', '').replace('\n', ', ').strip()
+            logger.info(f"[Groq] Keywords for '{topic[:30]}': {keywords[:100]}...")
+            return keywords
+            
+        except Exception as e:
+            logger.error(f"[Groq] expand_keywords error: {e}")
+            return ""
+    
+    async def summarize_lecture(self, transcript: str, topic: str = "") -> str:
+        """
+        Generate a structured summary of the lecture transcript
+        
+        Args:
+            transcript: Full transcript text
+            topic: Optional lecture topic for context
+            
+        Returns:
+            Markdown-formatted lecture summary
+        """
+        if not self.is_available or not transcript.strip():
+            return ""
+        
+        topic_context = f'Topic: "{topic}"\n' if topic else ""
+        
+        # Truncate very long transcripts to fit context window
+        max_chars = 25000  # ~6k tokens, leave room for prompt + output
+        if len(transcript) > max_chars:
+            transcript = transcript[:max_chars] + "\n... (truncated)"
+        
+        prompt = f"""{topic_context}Below is a lecture transcript. Create a concise, structured summary in Markdown format.
+
+Include:
+1. **Key Points** (3-5 bullet points)
+2. **Technical Terms** mentioned (with brief definitions if possible)
+3. **Action Items / Takeaways** (if any)
+
+Keep it concise and useful for a student reviewing notes.
+
+Transcript:
+---
+{transcript}
+---
+
+Summary:"""
+
+        try:
+            loop = asyncio.get_event_loop()
+            result = await loop.run_in_executor(None, self._chat, prompt)
+            logger.info(f"[Groq] Summary generated ({len(result)} chars)")
+            return result
+            
+        except Exception as e:
+            logger.error(f"[Groq] summarize_lecture error: {e}")
+            return ""
+    
+    def _chat(self, prompt: str) -> str:
+        """Synchronous Groq chat completion"""
+        if not self.client:
+            return ""
+        
+        response = self.client.chat.completions.create(
+            model=self.model,
+            messages=[
+                {"role": "system", "content": "You are a helpful academic assistant specialized in lecture comprehension."},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.3,
+            max_tokens=1024,
+            timeout=GROQ_TIMEOUT,
+        )
+        
+        return response.choices[0].message.content.strip()
