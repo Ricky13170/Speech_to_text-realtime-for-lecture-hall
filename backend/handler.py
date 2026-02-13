@@ -3,14 +3,19 @@ import base64
 import asyncio
 import numpy as np
 import time
+import re
 from datetime import datetime
 
 from backend.config import (
     SAMPLE_RATE, MAX_SEGMENT_SEC, OVERLAP_SEC, SILENCE_LIMIT,
-    MIN_DECODE_SEC, AGREEMENT_N, HALLUCINATION_HISTORY_SIZE
+    MIN_DECODE_SEC, AGREEMENT_N, HALLUCINATION_HISTORY_SIZE,
+    ENABLE_BARTPHO, BARTPHO_ADAPTER, BARTPHO_DEVICE,
+    GROQ_API_KEY, AUTO_SUMMARY_MIN_DURATION,
 )
 from backend.asr import WhisperASR, StreamingASRProcessor
 from backend.translation import NLLBTranslator
+from backend.bartpho_corrector import BARTphoCorrector
+from backend.groq_service import GroqService
 from backend.vad import VADManager
 from backend.speech_segment_buffer import SpeechSegmentBuffer
 from backend.local_agreement import LocalAgreement
@@ -23,11 +28,14 @@ class ASRService:
     def __init__(self):
         self.asr = None
         self.translator = None
+        self.corrector = None
+        self.groq = None
         self.is_initialized = False
 
     async def init(self):
-        print("[Model] Loading Whisper...")
+        loop = asyncio.get_event_loop()
         
+        print("[Model] Loading Whisper...")
         self.asr = WhisperASR(
             model_size="large-v3",
             language="vi",
@@ -36,8 +44,21 @@ class ASRService:
         )
         self.asr.load_model()
         
+        # Load BARTpho Corrector
+        if ENABLE_BARTPHO:
+            t0 = time.time()
+            print("[Model] Loading BARTpho Corrector...")
+            self.corrector = BARTphoCorrector(
+                adapter_id=BARTPHO_ADAPTER,
+                device=BARTPHO_DEVICE,
+                cache_dir="/cache/huggingface",
+            )
+            await loop.run_in_executor(None, self.corrector.load_model)
+            print(f"[Model] BARTpho loaded in {time.time() - t0:.1f}s")
+        else:
+            print("[Model] BARTpho disabled (ENABLE_BARTPHO=False)")
+        
         print("[Model] Loading NLLB Translator...")
-        loop = asyncio.get_event_loop()
         self.translator = NLLBTranslator(
             model_name="facebook/nllb-200-3.3B",
             src_lang="vie_Latn",
@@ -46,6 +67,11 @@ class ASRService:
             cache_dir="/cache/nllb"
         )
         await loop.run_in_executor(None, self.translator.load_model)
+        
+        # Init Groq LLM (non-blocking, no model to load)
+        print("[Model] Initializing Groq LLM...")
+        self.groq = GroqService()
+        self.groq.init()
         
         self.is_initialized = True
         print("[Model] All models ready")
@@ -61,7 +87,8 @@ class ASRSession:
         self.out_queue = asyncio.Queue()
         
         # Core components
-        self.vad = VADManager()
+        self.vad = VADManager(device="cuda")
+        self.vad.load()  # Pyannote model loaded eagerly
         self.segmenter = SpeechSegmentBuffer(
             sample_rate=SAMPLE_RATE,
             max_sec=MAX_SEGMENT_SEC,
@@ -85,6 +112,11 @@ class ASRSession:
         # Language config
         self.do_translate = True
         
+        # Context priming (Groq)
+        self.topic = ""
+        self.initial_prompt = ""
+        self.all_transcripts = []  # Collect transcripts for summary
+        
         self.transcript_history = [] 
         
         print("[Session] Initialized with segment-based architecture")
@@ -101,20 +133,33 @@ class ASRSession:
                 await self._handle_audio(data)
             elif msg_type == "stop":
                 await self._handle_stop()
+            elif msg_type == "summarize":
+                await self._handle_summarize()
             elif msg_type == "ping":
                 await self.out_queue.put(json.dumps({"type": "pong"}))
                 
         except Exception as e:
             print(f"[Handler] Error: {e}")
 
+    @staticmethod
+    def _sanitize_topic(topic: str) -> str:
+        """Sanitize user-provided topic input"""
+        if not topic:
+            return ""
+        topic = re.sub(r'[\x00-\x1f\x7f-\x9f]', '', topic)
+        return topic.strip()[:200]
+
     async def _handle_start(self, data):
         """Start recording session"""
         print("[Session] START")
         
+        self.topic = self._sanitize_topic(data.get("topic", ""))
         self.is_recording = True
         self.session_start = datetime.now()
         self.segment_id = 0
         self.last_stable = ""
+        self.all_transcripts = []
+        self.initial_prompt = ""
         
         # Reset all components
         self.vad.reset()
@@ -123,9 +168,43 @@ class ASRSession:
         self.hallucination_filter.reset()
         self.transcript_history = []  
         
+        # === Context Priming ===
+        base_prompt = (
+            "AI, ML, deep learning, machine learning, NLP, ChatGPT, GPT, "
+            "Gemini, OpenAI, Google, transformer, neural network, LLM, "
+            "computer vision, robotics, Python, TensorFlow, PyTorch, "
+            "dataset, token, model, fine-tuning, pre-training, embedding, "
+            "attention, inference, GPU, API, framework, server, deploy"
+        )
+        
+        if self.topic and self.service.groq and self.service.groq.is_available:
+            try:
+                await self.out_queue.put(json.dumps({
+                    "type": "log", "level": "info",
+                    "message": "Generating keywords from topic..."
+                }))
+                keywords = await self.service.groq.expand_keywords(
+                    self.topic, language="vi"
+                )
+                if keywords:
+                    self.initial_prompt = base_prompt + ", " + keywords
+                    print(f"[Context] Primed with: {self.initial_prompt[:80]}...")
+                else:
+                    self.initial_prompt = base_prompt
+            except Exception as e:
+                print(f"[Context] Keyword expansion failed: {e}")
+                self.initial_prompt = base_prompt
+        else:
+            self.initial_prompt = base_prompt
+        
+        if self.topic:
+            print(f"[Session] Topic: {self.topic[:40]}")
+        
         await self.out_queue.put(json.dumps({
             "type": "status",
-            "status": "started"
+            "status": "started",
+            "topic": self.topic,
+            "primed": bool(self.initial_prompt)
         }))
 
     async def _handle_audio(self, data):
@@ -151,11 +230,13 @@ class ASRSession:
             return
         
         rms = np.sqrt(np.mean(audio ** 2))
-        if rms < 0.003:  
-            return
-
-        is_speech = self.vad.is_speech(audio)
         
+        # For very quiet audio, skip VAD inference but still tell segmenter
+        # it's silence — this allows silence_limit to trigger FINAL
+        if rms < 0.003:
+            is_speech = False
+        else:
+            is_speech = self.vad.is_speech(audio)
 
         now_ts = (datetime.now() - self.session_start).total_seconds()
         result = self.segmenter.process(audio, is_speech, now_ts)
@@ -232,12 +313,30 @@ class ASRSession:
             self.last_stable = stable_text
             self.agreement.reset()
             
+            # BARTpho syllable correction (FINAL segments only)
+            pp_time = 0.0
+            if (self.service.corrector
+                and self.service.corrector.is_loaded):
+                loop = asyncio.get_event_loop()
+                pp_start = time.time()
+                corrected = await loop.run_in_executor(
+                    None, self.service.corrector.correct, stable_text
+                )
+                pp_time = time.time() - pp_start
+                if corrected and corrected != stable_text:
+                    print(f"[PP] \"{stable_text[:40]}\" → \"{corrected[:40]}\" ({pp_time:.2f}s)")
+                    stable_text = corrected
+            
+            # Collect transcript for summary
+            self.all_transcripts.append(stable_text)
+            
             self.transcript_history.append(stable_text)
             if len(self.transcript_history) > 3:
                 self.transcript_history.pop(0)
         else:
             # PARTIAL: Apply local agreement
             stable_text, unstable_text = self.agreement.process(text)
+            pp_time = 0.0
             
             self.pending_partial_text = f"{stable_text} {unstable_text}".strip()
             self.pending_partial_time = time.time()
@@ -290,11 +389,65 @@ class ASRSession:
         print("[Session] STOP")
         
         self.is_recording = False
+        session_duration = (datetime.now() - self.session_start).total_seconds() if self.session_start else 0
         
         await self.out_queue.put(json.dumps({
             "type": "status",
-            "status": "stopped"
+            "status": "stopped",
+            "segments": self.segment_id
         }))
+        
+        # Auto Summary via Groq (if session > 2 minutes)
+        if (session_duration >= AUTO_SUMMARY_MIN_DURATION
+            and self.all_transcripts
+            and self.service.groq
+            and self.service.groq.is_available):
+            await self.out_queue.put(json.dumps({
+                "type": "log", "level": "info",
+                "message": "Generating lecture summary..."
+            }))
+            asyncio.create_task(self._generate_summary())
+
+    async def _handle_summarize(self):
+        """Handle manual summarize request from client"""
+        if not self.all_transcripts:
+            await self.out_queue.put(json.dumps({
+                "type": "log", "level": "warning",
+                "message": "No transcripts to summarize"
+            }))
+            return
+        
+        if not self.service.groq or not self.service.groq.is_available:
+            await self.out_queue.put(json.dumps({
+                "type": "log", "level": "error",
+                "message": "Summary service not available"
+            }))
+            return
+        
+        await self.out_queue.put(json.dumps({
+            "type": "log", "level": "info",
+            "message": "Generating summary..."
+        }))
+        await self._generate_summary()
+    
+    async def _generate_summary(self):
+        """Generate lecture summary via Groq (async, non-blocking)"""
+        try:
+            full_transcript = "\n".join(self.all_transcripts)
+            summary = await self.service.groq.summarize_lecture(
+                full_transcript, topic=self.topic
+            )
+            
+            if summary:
+                await self.out_queue.put(json.dumps({
+                    "type": "summary",
+                    "summary": summary,
+                    "topic": self.topic,
+                    "segments_count": self.segment_id,
+                }))
+                print(f"[Summary] Generated ({len(summary)} chars)")
+        except Exception as e:
+            print(f"[Summary] Generation failed: {e}")
 
     async def _finalize_pending_partial(self):
         """Auto-finalize pending partial after timeout"""
@@ -337,19 +490,23 @@ class ASRSession:
     
     def _build_prompt(self) -> str:
         """
-        Build Whisper prompt from recent history.
+        Build Whisper prompt from initial_prompt (Groq keywords) + recent history.
         This significantly improves accuracy by providing context.
         """
-        if not self.transcript_history:
-            return None
+        parts = []
         
-        # Use last 2-3 transcripts (max ~100 chars)
-        recent = " ".join(self.transcript_history[-2:])
+        # Add Groq-generated keywords as base context
+        if self.initial_prompt:
+            parts.append(self.initial_prompt)
         
-        if len(recent) > 150:
-            recent = recent[-150:]
+        # Add recent transcript history
+        if self.transcript_history:
+            recent = " ".join(self.transcript_history[-2:])
+            if len(recent) > 150:
+                recent = recent[-150:]
+            parts.append(recent)
         
-        return recent
+        return ", ".join(parts) if parts else None
     
     async def _decode_intermediate(self, audio: np.ndarray):
         """
